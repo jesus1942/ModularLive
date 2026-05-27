@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Calculadora PWA de materiales para viviendas y espacios modulares."
+    />
+    <meta name="theme-color" content="#214034" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="assets/icon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+    <title>ModularLive</title>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">PWA para presupuestar espacios modulares</p>
+          <h1>Calculadora integral de materiales estructurales</h1>
+          <p class="hero-text">
+            Configura viviendas, oficinas, baños y otros módulos. La app estima
+            piso, paredes, techo, ventanas, puertas y genera una lista de
+            materiales exportable.
+          </p>
+        </div>
+        <div class="hero-card">
+          <div class="hero-metric">
+            <span>Superficie total</span>
+            <strong id="heroArea">0 m²</strong>
+          </div>
+          <div class="hero-metric">
+            <span>Ítems de materiales</span>
+            <strong id="heroItems">0</strong>
+          </div>
+          <div class="hero-metric">
+            <span>Paneles estructurales</span>
+            <strong id="heroPanels">0</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel form-panel">
+          <div class="section-heading">
+            <h2>Configuración del proyecto</h2>
+            <p>
+              Los valores iniciales usan criterios modulares estándar, pero
+              cada separación y abertura puede ajustarse.
+            </p>
+          </div>
+
+          <form id="projectForm" class="project-form">
+            <div class="field-grid">
+              <label>
+                Nombre del proyecto
+                <input
+                  type="text"
+                  name="projectName"
+                  value="Proyecto modular"
+                  maxlength="80"
+                />
+              </label>
+
+              <label>
+                Tipo de espacio
+                <select name="spaceType" id="spaceType">
+                  <option value="vivienda">Vivienda</option>
+                  <option value="oficina">Oficina</option>
+                  <option value="bano">Baño</option>
+                  <option value="custom">Personalizado</option>
+                </select>
+              </label>
+
+              <label>
+                Uso interior
+                <select name="interiorUseType" id="interiorUseType">
+                  <option value="dry">Habitación / oficina seca</option>
+                  <option value="kitchen">Cocina / lavadero</option>
+                  <option value="wet">Baño con ducha / zona húmeda</option>
+                </select>
+              </label>
+
+              <label>
+                Sistema estructural
+                <select name="structureType" id="structureType">
+                  <option value="steel_tube">Tubo estructural galvanizado</option>
+                  <option value="light_steel">Steel frame liviano</option>
+                  <option value="wood">Madera estructural</option>
+                </select>
+              </label>
+
+              <label>
+                Sección del bastidor principal
+                <select name="mainFrameSection" id="mainFrameSection">
+                  <option value="100x100x3.2">Tubo 100x100x3.2 mm</option>
+                  <option value="80x80x3.2">Tubo 80x80x3.2 mm</option>
+                </select>
+              </label>
+
+              <label>
+                Nivel de cálculo
+                <select name="calculationMode" id="calculationMode">
+                  <option value="mixed">Presupuesto + despiece</option>
+                  <option value="structural">Solo despiece estructural</option>
+                  <option value="estimate">Solo estimación comercial</option>
+                </select>
+              </label>
+
+              <label>
+                Cantidad de módulos
+                <input
+                  type="number"
+                  name="quantity"
+                  min="1"
+                  step="1"
+                  value="1"
+                />
+              </label>
+
+              <label>
+                Mano de obra por m² ($)
+                <input
+                  type="number"
+                  name="laborRate"
+                  min="0"
+                  step="1000"
+                  value="60000"
+                />
+              </label>
+
+              <label>
+                Ancho exterior (m)
+                <input
+                  type="number"
+                  name="width"
+                  min="1.2"
+                  step="0.1"
+                  value="3"
+                />
+              </label>
+
+              <label>
+                Largo exterior (m)
+                <input
+                  type="number"
+                  name="length"
+                  min="1.2"
+                  step="0.1"
+                  value="6"
+                />
+              </label>
+
+              <label>
+                Altura útil (m)
+                <input
+                  type="number"
+                  name="height"
+                  min="2"
+                  step="0.05"
+                  value="2.6"
+                />
+              </label>
+            </div>
+
+            <div class="section-heading compact">
+              <h3>Estructura</h3>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                Separación viguetas piso (m)
+                <input
+                  type="number"
+                  name="floorSpacing"
+                  min="0.3"
+                  step="0.05"
+                  value="0.4"
+                />
+              </label>
+
+              <label>
+                Separación montantes pared (m)
+                <input
+                  type="number"
+                  name="wallSpacing"
+                  min="0.3"
+                  step="0.05"
+                  value="0.4"
+                />
+              </label>
+
+              <label>
+                Separación cabios techo (m)
+                <input
+                  type="number"
+                  name="roofSpacing"
+                  min="0.3"
+                  step="0.05"
+                  value="0.4"
+                />
+              </label>
+
+              <label>
+                Voladizo de techo (m)
+                <input
+                  type="number"
+                  name="roofOverhang"
+                  min="0"
+                  step="0.05"
+                  value="0.2"
+                />
+              </label>
+
+              <label>
+                Panel estructural estándar (m²)
+                <input
+                  type="number"
+                  name="panelArea"
+                  min="1"
+                  step="0.1"
+                  value="2.98"
+                />
+              </label>
+
+              <label>
+                Merma general (%)
+                <input
+                  type="number"
+                  name="wasteFactor"
+                  min="0"
+                  max="30"
+                  step="1"
+                  value="8"
+                />
+              </label>
+
+              <label>
+                Largo comercial del perfil (m)
+                <input
+                  type="number"
+                  name="stockLength"
+                  min="3"
+                  step="0.5"
+                  value="6"
+                />
+              </label>
+            </div>
+
+            <div class="section-heading compact">
+              <h3>Aberturas</h3>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                Ventanas por módulo
+                <input
+                  type="number"
+                  name="windowCount"
+                  min="0"
+                  step="1"
+                  value="4"
+                />
+              </label>
+
+              <label>
+                Ancho ventana (m)
+                <input
+                  type="number"
+                  name="windowWidth"
+                  min="0.3"
+                  step="0.05"
+                  value="1.2"
+                />
+              </label>
+
+              <label>
+                Alto ventana (m)
+                <input
+                  type="number"
+                  name="windowHeight"
+                  min="0.3"
+                  step="0.05"
+                  value="1"
+                />
+              </label>
+
+              <label>
+                Puertas por módulo
+                <input
+                  type="number"
+                  name="doorCount"
+                  min="0"
+                  step="1"
+                  value="1"
+                />
+              </label>
+
+              <label>
+                Ancho puerta (m)
+                <input
+                  type="number"
+                  name="doorWidth"
+                  min="0.5"
+                  step="0.05"
+                  value="0.9"
+                />
+              </label>
+
+              <label>
+                Alto puerta (m)
+                <input
+                  type="number"
+                  name="doorHeight"
+                  min="1.8"
+                  step="0.05"
+                  value="2.1"
+                />
+              </label>
+            </div>
+
+            <div class="section-heading compact">
+              <h3>Cerramientos</h3>
+            </div>
+
+            <div class="field-grid">
+              <label>
+                Exterior de muros
+                <select name="wallExteriorCladding" id="wallExteriorCladding">
+                  <option value="corrugated_sheet">Chapa senoidal</option>
+                  <option value="trapezoidal_sheet">Chapa trapezoidal</option>
+                  <option value="cement_board">Placa cementicia</option>
+                  <option value="sandwich_panel">Panel sándwich</option>
+                </select>
+              </label>
+
+              <label>
+                Interior de muros
+                <select name="wallInteriorLining" id="wallInteriorLining">
+                  <option value="drywall">Placa de yeso estándar</option>
+                  <option value="moisture_drywall">Placa RH antihumedad</option>
+                  <option value="cement_board">Placa cementicia</option>
+                  <option value="frp_panel">Panel FRP lavable</option>
+                </select>
+              </label>
+
+              <label>
+                Cubierta exterior
+                <select name="roofCladding" id="roofCladding">
+                  <option value="corrugated_sheet">Chapa senoidal</option>
+                  <option value="trapezoidal_sheet">Chapa trapezoidal</option>
+                  <option value="sandwich_panel">Panel sándwich</option>
+                  <option value="cement_board">Placa cementicia</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="actions">
+              <button type="submit" class="primary">Recalcular</button>
+              <button type="button" id="presetButton" class="secondary">
+                Aplicar preset
+              </button>
+              <button type="button" id="printButton" class="secondary">
+                Imprimir informe
+              </button>
+              <button type="button" id="csvButton" class="secondary">
+                Exportar CSV
+              </button>
+              <button type="button" id="jsonButton" class="secondary">
+                Exportar JSON
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel results-panel">
+          <div class="section-heading">
+            <h2>Resumen técnico</h2>
+            <p id="projectSummary">
+              Completa o ajusta los datos para generar la lista de materiales.
+            </p>
+          </div>
+
+          <section class="print-report" id="printReport">
+            <div class="print-report__header">
+              <div>
+                <p class="eyebrow">Informe imprimible</p>
+                <h2 id="printProjectTitle">Proyecto modular</h2>
+              </div>
+              <div class="print-report__meta" id="printMeta"></div>
+            </div>
+            <div class="print-report__costs" id="costSummary"></div>
+          </section>
+
+          <div class="system-note" id="systemNote"></div>
+
+          <div class="summary-grid" id="summaryGrid"></div>
+
+          <div class="table-header">
+            <div>
+              <h3>Bocetos del módulo</h3>
+              <p>
+                Vista técnica con medidas principales y vista conceptual del volumen habitable.
+              </p>
+            </div>
+          </div>
+
+          <div class="sketch-grid">
+            <article class="sketch-card">
+              <h4>Boceto técnico</h4>
+              <div id="technicalSketch" class="sketch-frame"></div>
+            </article>
+            <article class="sketch-card">
+              <h4>Vista conceptual</h4>
+              <div id="conceptSketch" class="sketch-frame"></div>
+            </article>
+          </div>
+
+          <div class="table-header">
+            <div>
+              <h3>Compra consolidada por perfil</h3>
+              <p>
+                Agrupa barras y cantidades por material/sección para compra rápida y exportación a Excel.
+              </p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Rubro base</th>
+                  <th>Material</th>
+                  <th>Unidad</th>
+                  <th>Total</th>
+                  <th>Perfiles</th>
+                  <th>Detalle</th>
+                </tr>
+              </thead>
+              <tbody id="consolidatedTableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="table-header">
+            <div>
+              <h3>Lista detallada de materiales</h3>
+              <p>
+                Cantidades redondeadas para compra inicial. Revisar siempre con
+                cálculo estructural definitivo.
+              </p>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Rubro</th>
+                  <th>Material</th>
+                  <th>Unidad</th>
+                  <th>Cantidad</th>
+                  <th>Perfiles</th>
+                  <th>Detalle</th>
+                </tr>
+              </thead>
+              <tbody id="materialsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="summaryCardTemplate">
+      <article class="summary-card">
+        <span class="summary-label"></span>
+        <strong class="summary-value"></strong>
+        <small class="summary-note"></small>
+      </article>
+    </template>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
