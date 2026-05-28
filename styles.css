@@ -536,19 +536,9 @@ tbody tr:last-child td {
     padding: 10px 10px;
   }
 
-  /* Hide: Tipo (col 1), Rubro (col 2), Barras (col 5) */
-  table th:nth-child(1),
-  table td:nth-child(1),
-  table th:nth-child(2),
-  table td:nth-child(2),
-  table th:nth-child(5),
-  table td:nth-child(5) {
-    display: none;
-  }
-
-  /* Material column: truncate long names */
-  table td:nth-child(3) {
-    max-width: 120px;
+  /* Material column: truncate long names on mobile */
+  table td:nth-child(1) {
+    max-width: 130px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

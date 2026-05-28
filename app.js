@@ -210,16 +210,21 @@ function buildRowHtml(item) {
   const effectivePrice = manualPrice || (cached?.price ?? 0);
   const qty = parseFloat(item.quantity) || 0;
   const total = effectivePrice && qty ? formatCurrency(qty * effectivePrice) : "—";
-  const mlBtnText = cached ? `$ ${cached.price.toLocaleString("es-AR")}` : "Cargar precio";
-  const mlBtnTitle = cached
-    ? `Cargado de ML: ${escapeHtml(cached.title.slice(0, 60))} — tocá para ver el producto`
-    : "Buscar precio en MercadoLibre y cargarlo automáticamente";
+  const hasCached = !!cached;
+  const hasPrice = effectivePrice > 0;
+  const mlBtnText = hasCached
+    ? `$ ${cached.price.toLocaleString("es-AR")}`
+    : hasPrice
+      ? "Ver en ML"
+      : "Cargar precio";
+  const mlBtnTitle = hasCached
+    ? `ML: ${escapeHtml(cached.title.slice(0, 60))}`
+    : hasPrice
+      ? "Buscar en MercadoLibre"
+      : "Buscar precio en MercadoLibre y cargarlo automáticamente";
   return `<tr>
-    <td>${item.scope}</td>
-    <td>${item.category}</td>
     <td>${item.material}</td>
-    <td>${item.quantity} ${unitLabel(item.unit)}</td>
-    <td>${item.profileCount === null ? "-" : `${item.profileCount} barras`}</td>
+    <td>${item.quantity} ${item.unit}</td>
     <td><input class="price-input" type="number" min="0" step="100" placeholder="0" value="${effectivePrice || ""}" data-material="${escapeHtml(item.material)}" /></td>
     <td class="price-total">${total}</td>
     <td><button type="button" class="ml-link" data-material="${escapeHtml(item.material)}" title="${mlBtnTitle}">${escapeHtml(mlBtnText)}</button></td>
@@ -244,7 +249,7 @@ function refreshPriceTotals() {
     const mat = input.dataset.material;
     const price = Number(prices[mat]) || (mlCache[mat]?.price ?? 0);
     const cells = row.querySelectorAll('td');
-    const qty = parseFloat(cells[3]?.textContent) || 0;
+    const qty = parseFloat(cells[1]?.textContent) || 0;
     totalCell.textContent = price && qty ? formatCurrency(qty * price) : '—';
   });
 }
