@@ -227,7 +227,7 @@ function createItem(scope, category, material, unit, quantity, detail, stockLeng
     material,
     unit,
     quantity: normalizedQuantity,
-    profileCount: unit === "ml" ? Math.ceil(normalizedQuantity / stockLength) : null,
+    profileCount: unit === "m" ? Math.ceil(normalizedQuantity / stockLength) : null,
     detail
   };
 }
@@ -357,6 +357,9 @@ export function calculateProject(rawInput) {
   const lowerCubeFrameLength = modulePerimeter;
   const mainCubeFrameLength =
     cornerPostsLength + upperCubeFrameLength + lowerCubeFrameLength;
+  const mainFrameLabel = input.structureType === "steel_tube"
+    ? `Tubo estructural AC ${mainFrameSection} mm`
+    : mainFrameSection;
 
   const qty = input.quantity;
   const wastedFloorArea = applyWaste(moduleArea * qty, input.wasteFactor);
@@ -370,8 +373,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Bastidor principal",
-      `Bastidor principal ${mainFrameSection}`,
-      "ml",
+      mainFrameLabel,
+      "m",
       applyWaste(mainCubeFrameLength * qty, input.wasteFactor),
       `${cornerPostsPerModule} columnas + marco superior e inferior del cubo`,
       input.stockLength
@@ -379,8 +382,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Piso",
-      `Perfil estructural para vigas perimetrales ${system.perimeterBeam}`,
-      "ml",
+      system.perimeterBeam,
+      "m",
       applyWaste(modulePerimeter * qty, input.wasteFactor),
       "Travesaños y rigidización secundaria del piso",
       input.stockLength
@@ -388,8 +391,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Piso",
-      `Perfil estructural para viguetas ${system.floorJoist}`,
-      "ml",
+      system.floorJoist,
+      "m",
       applyWaste(floorJoistsPerModule * floorJoistSpan * qty, input.wasteFactor),
       `${floorJoistsPerModule} viguetas por módulo, luz estimada ${round(floorJoistSpan)} m`,
       input.stockLength
@@ -397,7 +400,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Piso",
-      `${system.structuralPanel} para piso`,
+      system.structuralPanel,
       "u",
       wastedFloorArea / input.panelArea,
       `Cobertura estimada ${round(wastedFloorArea)} m²`
@@ -421,8 +424,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Paredes",
-      `Perfil estructural para soleras y dinteles ${system.wallStud}`,
-      "ml",
+      system.wallStud,
+      "m",
       applyWaste(modulePerimeter * 3 * qty, input.wasteFactor),
       "Solera inferior y doble solera superior",
       input.stockLength
@@ -430,8 +433,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Paredes",
-      `Perfil estructural para montantes ${system.wallStud}`,
-      "ml",
+      system.wallStud,
+      "m",
       applyWaste(wallStudsPerModule * input.height * qty, input.wasteFactor),
       `${wallStudsPerModule} montantes por módulo incluyendo esquinas y laterales de aberturas`,
       input.stockLength
@@ -439,8 +442,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Paredes",
-      `Perfil estructural para refuerzos de aberturas ${system.openingFrame}`,
-      "ml",
+      system.openingFrame,
+      "m",
       applyWaste(openingReinforcementLength * qty, input.wasteFactor),
       "Dinteles, antepechos, jambas y refuerzos extra",
       input.stockLength
@@ -448,7 +451,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Paredes",
-      `${system.structuralPanel} para muros`,
+      system.structuralPanel,
       "u",
       wastedWallArea / input.panelArea,
       `Cobertura estimada ${round(wastedWallArea)} m²`
@@ -488,8 +491,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Techo",
-      `Perfil estructural para cabios ${system.roofRafter}`,
-      "ml",
+      system.roofRafter,
+      "m",
       applyWaste(roofRaftersPerModule * roofRafterSpan * qty, input.wasteFactor),
       `${roofRaftersPerModule} cabios por módulo, luz estimada ${round(roofRafterSpan)} m`,
       input.stockLength
@@ -497,8 +500,8 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Techo",
-      `Perfil estructural para vigas perimetrales ${system.perimeterBeam}`,
-      "ml",
+      system.perimeterBeam,
+      "m",
       applyWaste((2 * roofWidth + 2 * roofLength) * qty, input.wasteFactor),
       "Perímetro secundario de apoyo para la cubierta",
       input.stockLength
@@ -506,7 +509,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Techo",
-      `${system.structuralPanel} para techo`,
+      system.structuralPanel,
       "u",
       wastedRoofArea / input.panelArea,
       `Cobertura estimada ${round(wastedRoofArea)} m²`
@@ -589,7 +592,7 @@ export function calculateProject(rawInput) {
       .filter((item) => item.material.includes(system.structuralPanel))
       .reduce((sum, item) => sum + item.quantity, 0),
     linealMeters: materials
-      .filter((item) => item.unit === "ml")
+      .filter((item) => item.unit === "m")
       .reduce((sum, item) => sum + item.quantity, 0),
     profileUnits: materials
       .filter((item) => item.profileCount !== null)

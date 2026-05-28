@@ -41,12 +41,12 @@ test("calculateProject returns a coherent material list", () => {
   assert.equal(result.system.mainFrameSection, "100x100x3.2");
   assert.ok(
     result.materials.some((item) =>
-      item.material.includes("Perfil estructural para viguetas")
+      item.material.includes("100×50×3.2")
     )
   );
   assert.ok(
     result.materials.some((item) =>
-      item.material.includes("Bastidor principal 100x100x3.2")
+      item.material.includes("Tubo estructural AC 100x100x3.2 mm")
     )
   );
   assert.equal(result.derived.floorJoistsPerModule, 16);
@@ -54,12 +54,12 @@ test("calculateProject returns a coherent material list", () => {
   assert.equal(result.derived.mainCubeFrameLength, 46.4);
   assert.ok(result.totals.profileUnits > 0);
   assert.ok(
-    result.materials.some((item) => item.unit === "ml" && item.profileCount !== null)
+    result.materials.some((item) => item.unit === "m" && item.profileCount !== null)
   );
   assert.ok(result.materials.some((item) => item.scope === "Cerramiento"));
   assert.ok(
     result.materials.some((item) =>
-      item.material.includes("refuerzos de aberturas")
+      item.material.includes("100×50×2")
     )
   );
 });
