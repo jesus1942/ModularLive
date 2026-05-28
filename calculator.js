@@ -16,7 +16,7 @@ const STRUCTURE_SYSTEMS = {
     roofMembrane: "Membrana hidrófuga bajo cubierta",
     windBarrier: "Fieltro hidrófugo barrera de viento",
     fastener: 'Tornillo autoperforante cab. hex. 3/8" × 1 1/2"',
-    anchor: "Bulón expansivo M10 + taco Fischer para bastidor",
+    anchor: "Tornillo M10 con tarugo plástico expansivo",
     sealant: "Espuma de poliuretano expansiva + sellador MS",
     notes:
       "Bastidor principal y estructura secundaria resueltos con perfiles estructurales de acero al carbono."
@@ -38,7 +38,7 @@ const STRUCTURE_SYSTEMS = {
     roofMembrane: "Membrana bajo cubierta impermeable",
     windBarrier: "Housewrap hidrófugo transpirable",
     fastener: 'Tornillo punta mecha 3/8" × 1" autoperforante',
-    anchor: "Bulón galvanizado M8 para perfil galvanizado",
+    anchor: "Tornillo M8 galvanizado con tarugo plástico",
     sealant: "Cinta selladora + sellador MS para encuentros",
     notes:
       "Sistema liviano en perfiles conformados en frío, orientado a obra seca y panelización seriada."
@@ -60,7 +60,7 @@ const STRUCTURE_SYSTEMS = {
     roofMembrane: "Membrana hidrófuga bajo chapa",
     windBarrier: "Membrana transpirable hidrófuga",
     fastener: 'Tornillo para madera 4" cabeza plana + clavo tachuela 2 1/2"',
-    anchor: "Escuadra metálica galvanizada + anclaje mecánico",
+    anchor: "Escuadra galvanizada + tornillo M10 con tarugo",
     sealant: "Espuma poliuretano expansiva + sellador elástico",
     notes:
       "Sistema de entramado liviano en madera tratada, con buen desempeño térmico y fabricación simple."
