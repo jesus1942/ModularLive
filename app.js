@@ -462,8 +462,11 @@ function renderTechnicalSketch(result) {
   mkText(ex + ew/2, ey-eh-20, "FRENTE", { size: 19, weight: "bold" });
   addNode(rc.line(ex-30, ey, ex+ew+30, ey, rGround));
   addNode(rc.rectangle(ex, ey-eh, ew, eh, rWall));
-  const rov = input.roofOverhang * es;
-  addNode(rc.polygon([[ex-rov, ey-eh],[ex+ew/2, ey-eh-rov*0.9],[ex+ew+rov, ey-eh]], rRoof));
+  // Flat container roof with lip/overhang
+  const rov = Math.min(input.roofOverhang * es, 14);
+  addNode(rc.rectangle(ex - rov, ey - eh - 10, ew + rov * 2, 10, rRoof));
+  // Slight drainage slope marker
+  addNode(rc.line(ex - rov + 4, ey - eh - 6, ex + ew + rov - 4, ey - eh - 3, { roughness: 0.3, stroke: "#9aae9a", strokeWidth: 0.7, strokeLineDash: [4, 3] }));
   const wW = Math.max(22, input.windowWidth*es), wH = Math.max(28, input.windowHeight*es);
   const wY = ey - eh*0.62;
   [0.14, 0.65].forEach(f => {
@@ -485,8 +488,9 @@ function renderTechnicalSketch(result) {
   mkText(ssx+sw/2, ssy-sh-20, "LATERAL", { size: 19, weight: "bold" });
   addNode(rc.line(ssx-30, ssy, ssx+sw+30, ssy, rGround));
   addNode(rc.rectangle(ssx, ssy-sh, sw, sh, rWall));
-  const srov = input.roofOverhang * ss;
-  addNode(rc.polygon([[ssx-srov, ssy-sh],[ssx+sw/2, ssy-sh-srov*0.8],[ssx+sw+srov, ssy-sh]], rRoof));
+  // Flat container roof
+  const srov = Math.min(input.roofOverhang * ss, 14);
+  addNode(rc.rectangle(ssx - srov, ssy - sh - 10, sw + srov * 2, 10, rRoof));
   const sWW = Math.max(28, input.windowWidth*ss*0.8), sWH = Math.max(24, input.windowHeight*ss);
   [0.2, 0.6].forEach(f => addNode(rc.rectangle(ssx+sw*f, ssy-sh*0.60, sWW, sWH, rWin)));
   dimLine(ssx, ssy+28, ssx+sw, ssy+28);
@@ -504,12 +508,15 @@ function renderTechnicalSketch(result) {
   addNode(rc.polygon([[iox,ioy],[iox,ioy-iH],[iox+iWx,ioy-iH+iWy],[iox+iWx,ioy+iWy]], rIsoF));
   addNode(rc.polygon([[iox+iWx,ioy+iWy],[iox+iWx,ioy-iH+iWy],[iox+iWx+iDx,ioy-iH+iWy-iDy],[iox+iWx+iDx,ioy+iWy-iDy]], rIsoS));
   addNode(rc.polygon([[iox,ioy-iH],[iox+iDx,ioy-iH-iDy],[iox+iDx+iWx,ioy-iH-iDy+iWy],[iox+iWx,ioy-iH+iWy]], rIsoT));
-  // roof
-  const pk = [iox+iWx/2, ioy-iH+iWy/2-iH*0.28];
-  const pkR = [iox+iWx/2+iDx, ioy-iH+iWy/2-iDy-iH*0.28];
-  addNode(rc.polygon([[iox,ioy-iH],pk,[iox+iWx,ioy-iH+iWy]], { ...rRoof, seed:30 }));
-  addNode(rc.polygon([[iox+iDx,ioy-iH-iDy],pkR,[iox+iDx+iWx,ioy-iH-iDy+iWy]], { ...rRoof, seed:31 }));
-  addNode(rc.line(pk[0],pk[1],pkR[0],pkR[1], { roughness: 0.8, stroke: "#1f3a30", strokeWidth: 1.8 }));
+  // Flat container roof — top face already drawn as rIsoT above
+  // Add roof lip/cap overhang on front edge
+  const iRov = Math.min(input.roofOverhang * is * 0.4, 8);
+  addNode(rc.polygon([
+    [iox - iRov, ioy - iH],
+    [iox - iRov + iDx, ioy - iH - iDy],
+    [iox - iRov + iDx + iWx + iRov*2, ioy - iH - iDy + iWy],
+    [iox + iWx + iRov, ioy - iH + iWy]
+  ], { ...rRoof, fill: "#ddd5c4", hachureAngle: 60, seed: 32 }));
   // front window
   const iwinW = Math.max(16, input.windowWidth*is*0.5), iwinH = Math.max(22, input.windowHeight*is*0.6);
   addNode(rc.rectangle(iox+iWx*0.3, ioy-iH*0.62+iWy*0.3, iwinW, iwinH, { ...rWin, seed:40 }));
