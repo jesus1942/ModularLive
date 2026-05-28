@@ -129,13 +129,85 @@ function savePrice(materialName, price) {
   localStorage.setItem(PRICES_KEY, JSON.stringify(prices));
 }
 
+const ML_CACHE_KEY = 'modularlive_ml_cache';
+
+function getMLCache() {
+  try { return JSON.parse(localStorage.getItem(ML_CACHE_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function saveMLCache(cache) {
+  localStorage.setItem(ML_CACHE_KEY, JSON.stringify(cache));
+}
+
+async function fetchMLItem(query) {
+  const url = `https://api.mercadolibre.com/sites/MLA/search?q=${encodeURIComponent(query)}&limit=5`;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data.results || data.results.length === 0) return null;
+    const results = data.results.filter(r => r.price > 0);
+    if (results.length === 0) return null;
+    const prices = results.map(r => r.price).sort((a, b) => a - b);
+    const median = prices[Math.floor(prices.length / 2)];
+    const best = results[0];
+    return { price: Math.round(median), link: best.permalink, title: best.title };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchAllMLPrices() {
+  if (!latestResult) renderProject();
+  const btn = document.querySelector('#mlFetchBtn');
+  if (btn) { btn.textContent = 'Buscando…'; btn.disabled = true; }
+
+  const materials = [
+    ...latestResult.materials,
+    ...consolidateMaterials(latestResult)
+  ];
+  // unique by material name
+  const unique = [...new Map(materials.map(m => [m.material, m])).values()];
+
+  const cache = getMLCache();
+  let found = 0;
+
+  for (let i = 0; i < unique.length; i++) {
+    const mat = unique[i];
+    if (cache[mat.material]) { found++; continue; }
+    if (btn) btn.textContent = `Buscando ${i + 1}/${unique.length}…`;
+    const result = await fetchMLItem(mat.material);
+    if (result) {
+      cache[mat.material] = result;
+      found++;
+    }
+    // Save prices to the prices store too
+    if (result && result.price) {
+      savePrice(mat.material, result.price);
+    }
+    await new Promise(r => setTimeout(r, 350)); // rate limit
+  }
+
+  saveMLCache(cache);
+  if (btn) { btn.textContent = 'Cotizar en ML'; btn.disabled = false; }
+  renderProject(); // re-render with prices + links
+  showToast(`Precios actualizados: ${found} materiales`);
+}
+
 function renderMaterials(materials) {
   const prices = getPrices();
+  const mlCache = getMLCache();
   tableBody.innerHTML = materials.map(item => {
     const price = prices[item.material] || '';
     const qty = parseFloat(item.quantity) || 0;
     const total = price && qty ? formatCurrency(qty * parseFloat(price)) : '—';
-    const mlUrl = `https://listado.mercadolibre.com.ar/${encodeURIComponent(item.material)}`;
+    const cached = mlCache[item.material];
+    const mlUrl = cached
+      ? cached.link
+      : `https://listado.mercadolibre.com.ar/${encodeURIComponent(item.material)}`;
+    const mlTitle = cached ? escapeHtml(cached.title.slice(0, 40)) : 'Buscar';
+    const priceLabel = cached && !prices[item.material] ? `$ ${cached.price.toLocaleString('es-AR')}` : escapeHtml(String(price));
     return `<tr>
       <td>${item.scope}</td>
       <td>${item.category}</td>
@@ -143,20 +215,26 @@ function renderMaterials(materials) {
       <td>${item.unit}</td>
       <td>${item.quantity}</td>
       <td>${item.profileCount === null ? '-' : `${item.profileCount} barras`}</td>
-      <td><input class="price-input" type="number" min="0" step="100" placeholder="$ 0" value="${escapeHtml(String(price))}" data-material="${escapeHtml(item.material)}" /></td>
+      <td><input class="price-input" type="number" min="0" step="100" placeholder="$ 0" value="${priceLabel}" data-material="${escapeHtml(item.material)}" /></td>
       <td class="price-total">${total}</td>
-      <td><a href="${mlUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="Buscar en MercadoLibre Argentina">ML</a></td>
+      <td><a href="${mlUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="${mlTitle}">ML</a></td>
     </tr>`;
   }).join('');
 }
 
 function renderConsolidatedMaterials(materials) {
   const prices = getPrices();
+  const mlCache = getMLCache();
   consolidatedTableBody.innerHTML = materials.map(item => {
     const price = prices[item.material] || '';
     const qty = parseFloat(item.quantity) || 0;
     const total = price && qty ? formatCurrency(qty * parseFloat(price)) : '—';
-    const mlUrl = `https://listado.mercadolibre.com.ar/${encodeURIComponent(item.material)}`;
+    const cached = mlCache[item.material];
+    const mlUrl = cached
+      ? cached.link
+      : `https://listado.mercadolibre.com.ar/${encodeURIComponent(item.material)}`;
+    const mlTitle = cached ? escapeHtml(cached.title.slice(0, 40)) : 'Buscar';
+    const priceLabel = cached && !prices[item.material] ? `$ ${cached.price.toLocaleString('es-AR')}` : escapeHtml(String(price));
     return `<tr>
       <td>${item.scope}</td>
       <td>${item.category}</td>
@@ -164,9 +242,9 @@ function renderConsolidatedMaterials(materials) {
       <td>${item.unit}</td>
       <td>${item.quantity}</td>
       <td>${item.profileCount === null ? '-' : `${item.profileCount} barras`}</td>
-      <td><input class="price-input" type="number" min="0" step="100" placeholder="$ 0" value="${escapeHtml(String(price))}" data-material="${escapeHtml(item.material)}" /></td>
+      <td><input class="price-input" type="number" min="0" step="100" placeholder="$ 0" value="${priceLabel}" data-material="${escapeHtml(item.material)}" /></td>
       <td class="price-total">${total}</td>
-      <td><a href="${mlUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="Buscar en MercadoLibre Argentina">ML</a></td>
+      <td><a href="${mlUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="${mlTitle}">ML</a></td>
     </tr>`;
   }).join('');
 }
@@ -806,6 +884,8 @@ document.querySelector('.results-panel').addEventListener('change', (e) => {
     refreshPriceTotals();
   }
 });
+
+document.querySelector('#mlFetchBtn')?.addEventListener('click', fetchAllMLPrices);
 
 document.querySelector('#copyLinkBtn').addEventListener('click', () => {
   const url = buildShareUrl();

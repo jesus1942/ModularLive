@@ -152,13 +152,13 @@ test("consolidated materials preserve grouped purchase data", () => {
   assert.ok(
     consolidated.some(
       (item) =>
-        item.material.includes("Perfil estructural 100x50x3.2 mm") &&
+        item.material.includes("Tubo rectangular acero al carbono 100×50×3.2 mm") &&
         item.category.includes("Piso") &&
         item.category.includes("Techo")
     )
   );
   assert.ok(
-    consolidated.some((item) => item.material.includes("Chapa senoidal"))
+    consolidated.some((item) => item.material.includes("Chapa sinusoidal galvanizada N°25 prepintada"))
   );
 
   const csv = consolidatedMaterialsToCsv(result);
