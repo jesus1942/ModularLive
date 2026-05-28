@@ -298,48 +298,65 @@ function buildSummaryCsv(result) {
     .join("\n");
 }
 
+function buildPricedMaterials(result) {
+  const prices = getPrices();
+  const mlCache = getMLCache();
+  return consolidateMaterials(result).map((item) => {
+    const unitPrice = Number(prices[item.material]) || (mlCache[item.material]?.price ?? 0);
+    const qty = parseFloat(item.quantity) || 0;
+    const total = unitPrice * qty;
+    return { ...item, unitPrice, total };
+  });
+}
+
+function buildMaterialsCsv(result) {
+  const rows = [["Material", "Unidad", "Cantidad", "Precio unitario", "Total"]];
+  let materialsSubtotal = 0;
+  buildPricedMaterials(result).forEach((item) => {
+    materialsSubtotal += item.total;
+    rows.push([
+      item.material,
+      item.unit,
+      String(item.quantity),
+      item.unitPrice > 0 ? String(item.unitPrice) : "",
+      item.total > 0 ? String(Math.round(item.total)) : ""
+    ]);
+  });
+  rows.push([]);
+  rows.push(["Subtotal materiales", "", "", "", String(Math.round(materialsSubtotal))]);
+  rows.push([
+    "Mano de obra",
+    "m²",
+    String(result.totals.area),
+    String(result.costs.laborRate),
+    String(result.costs.laborCostTotal)
+  ]);
+  rows.push([
+    "TOTAL",
+    "",
+    "",
+    "",
+    String(Math.round(materialsSubtotal + result.costs.laborCostTotal))
+  ]);
+  return rows
+    .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
+    .join("\n");
+}
+
 function buildReportHtml(result) {
-  const consolidated = consolidateMaterials(result);
-  const summaryCards = buildSummaryCards(result);
-  const summaryHtml = summaryCards
-    .map(
-      (card) => `
-        <div class="summary-item">
-          <strong>${escapeHtml(card.value)}</strong>
-          <span>${escapeHtml(card.label)}</span>
-          <small>${escapeHtml(card.note)}</small>
-        </div>
-      `
-    )
-    .join("");
+  const priced = buildPricedMaterials(result);
+  const materialsSubtotal = priced.reduce((sum, it) => sum + it.total, 0);
+  const totalGeneral = materialsSubtotal + result.costs.laborCostTotal;
 
-  const consolidatedRows = consolidated
+  const rows = priced
     .map(
       (item) => `
         <tr>
-          <td>${escapeHtml(item.scope)}</td>
-          <td>${escapeHtml(item.category)}</td>
           <td>${escapeHtml(item.material)}</td>
-          <td>${escapeHtml(item.unit)}</td>
-          <td>${escapeHtml(item.quantity)}</td>
-          <td>${item.profileCount === null ? "-" : `${item.profileCount} barras`}</td>
-          <td>${escapeHtml(item.detail)}</td>
-        </tr>
-      `
-    )
-    .join("");
-
-  const detailRows = result.materials
-    .map(
-      (item) => `
-        <tr>
-          <td>${escapeHtml(item.scope)}</td>
-          <td>${escapeHtml(item.category)}</td>
-          <td>${escapeHtml(item.material)}</td>
-          <td>${escapeHtml(item.unit)}</td>
-          <td>${escapeHtml(item.quantity)}</td>
-          <td>${item.profileCount === null ? "-" : `${item.profileCount} barras`}</td>
-          <td>${escapeHtml(item.detail)}</td>
+          <td class="num">${escapeHtml(item.unit)}</td>
+          <td class="num">${escapeHtml(item.quantity)}</td>
+          <td class="num">${item.unitPrice > 0 ? escapeHtml(formatCurrency(item.unitPrice)) : "—"}</td>
+          <td class="num">${item.total > 0 ? escapeHtml(formatCurrency(item.total)) : "—"}</td>
         </tr>
       `
     )
@@ -349,69 +366,36 @@ function buildReportHtml(result) {
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>${escapeHtml(result.input.projectName)} - Informe</title>
+  <title>${escapeHtml(result.input.projectName)} - Presupuesto</title>
   <style>
     @page { size: A4 portrait; margin: 10mm; }
     body { font-family: Arial, sans-serif; color: #222; margin: 0; }
     .page { padding: 12px; }
-    h1, h2, h3 { margin: 0 0 8px; }
-    p { margin: 6px 0; line-height: 1.4; }
-    .header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
-    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0; }
-    .summary-item { border: 1px solid #ccc; border-radius: 8px; padding: 10px; }
-    .summary-item strong, .summary-item span, .summary-item small { display: block; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
-    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; vertical-align: top; }
+    h1 { margin: 0 0 4px; font-size: 20px; }
+    .meta { color: #666; font-size: 12px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #ccc; padding: 7px 8px; text-align: left; vertical-align: top; }
     th { background: #f3f3f3; }
-    .note { border: 1px solid #ccc; padding: 10px; border-radius: 8px; margin: 14px 0; }
-    .costs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
-    .cost { border: 1px solid #ccc; border-radius: 8px; padding: 10px; }
-    .technical-sheet { margin: 16px 0; border: 1px solid #ccc; border-radius: 8px; overflow: hidden; }
-    .technical-sheet svg { display: block; width: 100%; height: auto; }
-    .meta { color: #666; font-size: 12px; }
+    td.num { text-align: right; white-space: nowrap; }
+    tr.subtotal td, tr.labor td, tr.total td { font-weight: 600; background: #fafafa; }
+    tr.total td { background: #eef2ee; font-size: 12px; }
   </style>
 </head>
 <body>
   <div class="page">
-    <div class="header">
-      <div>
-        <h1>${escapeHtml(result.input.projectName)}</h1>
-        <p>${result.input.quantity} módulo(s) iguales | ${result.input.length} x ${result.input.width} x ${result.input.height} m</p>
-        <p class="meta">Generado: ${escapeHtml(formatDateTime())}</p>
-      </div>
-      <div>
-        <p><strong>MO por m²:</strong> ${escapeHtml(formatCurrency(result.costs.laborRate))}</p>
-        <p><strong>Validez:</strong> ${result.commercial.quoteValidityDays} días</p>
-      </div>
-    </div>
+    <h1>${escapeHtml(result.input.projectName)}</h1>
+    <p class="meta">${result.input.quantity} módulo(s) · ${result.input.length} × ${result.input.width} × ${result.input.height} m · ${result.totals.area} m² · ${escapeHtml(formatDateTime())}</p>
 
-    <div class="costs">
-      <div class="cost"><strong>${escapeHtml(formatCurrency(result.costs.laborRate))}</strong><p>Mano de obra por m²</p></div>
-      <div class="cost"><strong>${escapeHtml(formatCurrency(result.costs.laborCostPerModule))}</strong><p>Mano de obra por módulo</p></div>
-      <div class="cost"><strong>${escapeHtml(formatCurrency(result.costs.laborCostTotal))}</strong><p>Mano de obra total</p></div>
-    </div>
-
-    <div class="note">
-      <p><strong>Condición comercial:</strong> ${escapeHtml(result.commercial.materialsPricingLabel)}</p>
-      <p>${escapeHtml(result.commercial.notes)}</p>
-    </div>
-
-    <div class="summary">${summaryHtml}</div>
-
-    <h2>Compra consolidada por perfil</h2>
     <table>
       <thead>
-        <tr><th>Tipo</th><th>Rubro base</th><th>Material</th><th>Unidad</th><th>Total</th><th>Perfiles</th><th>Detalle</th></tr>
+        <tr><th>Material</th><th>Unidad</th><th>Cantidad</th><th>Precio unit.</th><th>Total</th></tr>
       </thead>
-      <tbody>${consolidatedRows}</tbody>
-    </table>
-
-    <h2 style="margin-top:16px;">Lista detallada de materiales</h2>
-    <table>
-      <thead>
-        <tr><th>Tipo</th><th>Rubro</th><th>Material</th><th>Unidad</th><th>Cantidad</th><th>Perfiles</th><th>Detalle</th></tr>
-      </thead>
-      <tbody>${detailRows}</tbody>
+      <tbody>
+        ${rows}
+        <tr class="subtotal"><td colspan="4">Subtotal materiales</td><td class="num">${escapeHtml(formatCurrency(materialsSubtotal))}</td></tr>
+        <tr class="labor"><td>Mano de obra</td><td class="num">m²</td><td class="num">${result.totals.area}</td><td class="num">${escapeHtml(formatCurrency(result.costs.laborRate))}</td><td class="num">${escapeHtml(formatCurrency(result.costs.laborCostTotal))}</td></tr>
+        <tr class="total"><td colspan="4">TOTAL</td><td class="num">${escapeHtml(formatCurrency(totalGeneral))}</td></tr>
+      </tbody>
     </table>
   </div>
 </body>
@@ -1024,17 +1008,8 @@ csvButton.addEventListener("click", () => {
     renderProject();
   }
   const safeName = latestResult.input.projectName.toLowerCase().replace(/\s+/g, "-");
-  const csvSections = [
-    "RESUMEN COMERCIAL",
-    buildSummaryCsv(latestResult),
-    "",
-    "COMPRA CONSOLIDADA POR PERFIL",
-    consolidatedMaterialsToCsv(latestResult),
-    "",
-    "LISTA DETALLADA DE MATERIALES",
-    materialsToCsv(latestResult)
-  ].join("\n");
-  downloadFile(`${safeName}-materiales.csv`, `\uFEFF${csvSections}`, "text/csv;charset=utf-8");
+  const csv = buildMaterialsCsv(latestResult);
+  downloadFile(`${safeName}-presupuesto.csv`, `\uFEFF${csv}`, "text/csv;charset=utf-8");
 });
 
 reportButton.addEventListener("click", () => {
@@ -1053,12 +1028,33 @@ jsonButton.addEventListener("click", () => {
   if (!latestResult) {
     renderProject();
   }
-  const filename = `${latestResult.input.projectName.toLowerCase().replace(/\s+/g, "-")}.json`;
-  downloadFile(
-    filename,
-    JSON.stringify(latestResult, null, 2),
-    "application/json;charset=utf-8"
-  );
+  const priced = buildPricedMaterials(latestResult);
+  const materialsSubtotal = priced.reduce((sum, it) => sum + it.total, 0);
+  const payload = {
+    project: latestResult.input.projectName,
+    modules: latestResult.input.quantity,
+    dimensions: {
+      length: latestResult.input.length,
+      width: latestResult.input.width,
+      height: latestResult.input.height
+    },
+    totalArea: latestResult.totals.area,
+    materials: priced.map((it) => ({
+      material: it.material,
+      unit: it.unit,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      total: it.total
+    })),
+    labor: {
+      ratePerSquareMeter: latestResult.costs.laborRate,
+      total: latestResult.costs.laborCostTotal
+    },
+    subtotalMaterials: Math.round(materialsSubtotal),
+    grandTotal: Math.round(materialsSubtotal + latestResult.costs.laborCostTotal)
+  };
+  const filename = `${latestResult.input.projectName.toLowerCase().replace(/\s+/g, "-")}-presupuesto.json`;
+  downloadFile(filename, JSON.stringify(payload, null, 2), "application/json;charset=utf-8");
 });
 
 printButton.addEventListener("click", () => {
