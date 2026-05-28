@@ -1,14 +1,14 @@
 const STRUCTURE_SYSTEMS = {
   steel_tube: {
-    label: "Tubo estructural galvanizado",
-    frameMaterial: "Caño estructural de acero al carbono galvanizado",
+    label: "Estructura metálica",
+    frameMaterial: "Perfil estructural de acero al carbono",
     mainFrameOptions: ["100x100x3.2", "80x80x3.2"],
     defaultMainFrameSection: "100x100x3.2",
-    floorJoist: "Caño estructural 100x50x3.2 mm",
-    perimeterBeam: "Caño estructural 100x50x3.2 mm",
-    wallStud: "Caño estructural 100x50x2 mm",
-    roofRafter: "Caño estructural 100x50x3.2 mm",
-    openingFrame: "Tubo 100x50x2 mm",
+    floorJoist: "Perfil estructural 100x50x3.2 mm",
+    perimeterBeam: "Perfil estructural 100x50x3.2 mm",
+    wallStud: "Perfil estructural 100x50x2 mm",
+    roofRafter: "Perfil estructural 100x50x3.2 mm",
+    openingFrame: "Perfil estructural 100x50x2 mm",
     structuralPanel: "Placa OSB estructural 11 mm",
     floorInsulation: "Lana mineral alta densidad 100 mm",
     wallInsulation: "Lana mineral 100 mm",
@@ -19,7 +19,7 @@ const STRUCTURE_SYSTEMS = {
     anchor: "Anclajes químicos / mecánicos para bastidor",
     sealant: "Espuma expansiva y sellador híbrido",
     notes:
-      "Bastidor principal en caño estructural galvanizado, recomendado para módulos transportables y ambientes húmedos."
+      "Bastidor principal y estructura secundaria resueltos con perfiles estructurales de acero al carbono."
   },
   light_steel: {
     label: "Steel frame liviano",
@@ -153,13 +153,13 @@ const PRESETS = {
 
 const CLADDING_SYSTEMS = {
   corrugated_sheet: {
-    label: "Chapa senoidal galvanizada",
+    label: "Chapa senoidal",
     unit: "u",
     coverageArea: 2.64,
     detail: "Hoja comercial 1,10 x 2,40 m aprox."
   },
   trapezoidal_sheet: {
-    label: "Chapa trapezoidal galvanizada",
+    label: "Chapa trapezoidal",
     unit: "u",
     coverageArea: 2.64,
     detail: "Hoja comercial 1,10 x 2,40 m aprox."
@@ -177,13 +177,13 @@ const CLADDING_SYSTEMS = {
     detail: "Panel modular 1,00 x 2,40 m"
   },
   drywall: {
-    label: "Placa de yeso estándar",
+    label: "Placa de durlock",
     unit: "u",
     coverageArea: 2.88,
     detail: "Placa comercial 1,20 x 2,40 m"
   },
   moisture_drywall: {
-    label: "Placa RH antihumedad",
+    label: "Placa de durlock antihumedad",
     unit: "u",
     coverageArea: 2.88,
     detail: "Placa comercial 1,20 x 2,40 m"
@@ -370,7 +370,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Bastidor principal",
-      `${system.frameMaterial} - bastidor principal ${mainFrameSection}`,
+      `Bastidor principal ${mainFrameSection}`,
       "ml",
       applyWaste(mainCubeFrameLength * qty, input.wasteFactor),
       `${cornerPostsPerModule} columnas + marco superior e inferior del cubo`,
@@ -379,7 +379,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Piso",
-      `${system.frameMaterial} - vigas perimetrales ${system.perimeterBeam}`,
+      `Perfil estructural para vigas perimetrales ${system.perimeterBeam}`,
       "ml",
       applyWaste(modulePerimeter * qty, input.wasteFactor),
       "Travesaños y rigidización secundaria del piso",
@@ -388,7 +388,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Piso",
-      `${system.frameMaterial} - viguetas ${system.floorJoist}`,
+      `Perfil estructural para viguetas ${system.floorJoist}`,
       "ml",
       applyWaste(floorJoistsPerModule * floorJoistSpan * qty, input.wasteFactor),
       `${floorJoistsPerModule} viguetas por módulo, luz estimada ${round(floorJoistSpan)} m`,
@@ -421,7 +421,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Paredes",
-      `${system.frameMaterial} - soleras y dinteles ${system.wallStud}`,
+      `Perfil estructural para soleras y dinteles ${system.wallStud}`,
       "ml",
       applyWaste(modulePerimeter * 3 * qty, input.wasteFactor),
       "Solera inferior y doble solera superior",
@@ -430,7 +430,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Paredes",
-      `${system.frameMaterial} - montantes ${system.wallStud}`,
+      `Perfil estructural para montantes ${system.wallStud}`,
       "ml",
       applyWaste(wallStudsPerModule * input.height * qty, input.wasteFactor),
       `${wallStudsPerModule} montantes por módulo incluyendo esquinas y laterales de aberturas`,
@@ -439,7 +439,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Paredes",
-      `${system.frameMaterial} - refuerzos de aberturas ${system.openingFrame}`,
+      `Perfil estructural para refuerzos de aberturas ${system.openingFrame}`,
       "ml",
       applyWaste(openingReinforcementLength * qty, input.wasteFactor),
       "Dinteles, antepechos, jambas y refuerzos extra",
@@ -488,7 +488,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Techo",
-      `${system.frameMaterial} - cabios ${system.roofRafter}`,
+      `Perfil estructural para cabios ${system.roofRafter}`,
       "ml",
       applyWaste(roofRaftersPerModule * roofRafterSpan * qty, input.wasteFactor),
       `${roofRaftersPerModule} cabios por módulo, luz estimada ${round(roofRafterSpan)} m`,
@@ -497,7 +497,7 @@ export function calculateProject(rawInput) {
     createItem(
       "Despiece estructural",
       "Techo",
-      `${system.frameMaterial} - vigas perimetrales ${system.perimeterBeam}`,
+      `Perfil estructural para vigas perimetrales ${system.perimeterBeam}`,
       "ml",
       applyWaste((2 * roofWidth + 2 * roofLength) * qty, input.wasteFactor),
       "Perímetro secundario de apoyo para la cubierta",
@@ -625,6 +625,14 @@ export function calculateProject(rawInput) {
       laborCostPerModule: round(laborCostPerModule),
       laborCostTotal: round(laborCostTotal)
     },
+    commercial: {
+      laborIncluded: true,
+      materialsPricingStatus: "subject_to_approval",
+      materialsPricingLabel: "Materiales sujetos a aprobación del proyecto",
+      quoteValidityDays: 7,
+      notes:
+        "Las cantidades son estimativas para cómputo preliminar. La definición final depende de aprobación comercial, validación técnica, disponibilidad y detalles ejecutivos."
+    },
     totals,
     derived: {
       moduleArea: round(moduleArea),
@@ -704,6 +712,11 @@ export function buildSummaryCards(result) {
       label: "Renglones de compra",
       value: `${result.totals.items}`,
       note: `${result.totals.structuralItems} estructural / ${result.totals.claddingItems} cerramiento / ${result.totals.estimateItems} complementario`
+    },
+    {
+      label: "Estado comercial",
+      value: "MO cotizable",
+      note: result.commercial.materialsPricingLabel
     }
   ];
 }

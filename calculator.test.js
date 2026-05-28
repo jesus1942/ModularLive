@@ -37,16 +37,16 @@ test("calculateProject returns a coherent material list", () => {
   assert.equal(result.costs.laborCostPerModule, 1080000);
   assert.equal(result.costs.laborCostTotal, 2160000);
   assert.ok(result.materials.every((item) => item.quantity > 0));
-  assert.equal(result.system.label, "Tubo estructural galvanizado");
+  assert.equal(result.system.label, "Estructura metálica");
   assert.equal(result.system.mainFrameSection, "100x100x3.2");
   assert.ok(
     result.materials.some((item) =>
-      item.material.includes("Caño estructural de acero al carbono galvanizado - viguetas")
+      item.material.includes("Perfil estructural para viguetas")
     )
   );
   assert.ok(
     result.materials.some((item) =>
-      item.material.includes("bastidor principal 100x100x3.2")
+      item.material.includes("Bastidor principal 100x100x3.2")
     )
   );
   assert.equal(result.derived.floorJoistsPerModule, 16);
@@ -152,7 +152,7 @@ test("consolidated materials preserve grouped purchase data", () => {
   assert.ok(
     consolidated.some(
       (item) =>
-        item.material.includes("Caño estructural 100x50x3.2 mm") &&
+        item.material.includes("Perfil estructural 100x50x3.2 mm") &&
         item.category.includes("Piso") &&
         item.category.includes("Techo")
     )

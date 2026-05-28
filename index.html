@@ -18,7 +18,7 @@
     <div class="page-shell">
       <header class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">PWA para presupuestar espacios modulares</p>
+          <p class="eyebrow">Presupuestador de espacios modulares</p>
           <h1>Calculadora integral de materiales estructurales</h1>
           <p class="hero-text">
             Configura viviendas, oficinas, baños y otros módulos. La app estima
@@ -339,8 +339,8 @@
               <label>
                 Interior de muros
                 <select name="wallInteriorLining" id="wallInteriorLining">
-                  <option value="drywall">Placa de yeso estándar</option>
-                  <option value="moisture_drywall">Placa RH antihumedad</option>
+                  <option value="drywall">Placa de durlock</option>
+                  <option value="moisture_drywall">Placa de durlock antihumedad</option>
                   <option value="cement_board">Placa cementicia</option>
                   <option value="frp_panel">Panel FRP lavable</option>
                 </select>
@@ -368,6 +368,9 @@
               <button type="button" id="csvButton" class="secondary">
                 Exportar CSV
               </button>
+              <button type="button" id="reportButton" class="secondary">
+                Exportar informe
+              </button>
               <button type="button" id="jsonButton" class="secondary">
                 Exportar JSON
               </button>
@@ -392,6 +395,8 @@
               <div class="print-report__meta" id="printMeta"></div>
             </div>
             <div class="print-report__costs" id="costSummary"></div>
+            <div class="print-report__note" id="approvalNote"></div>
+            <div class="commercial-box" id="commercialBox"></div>
           </section>
 
           <div class="system-note" id="systemNote"></div>
@@ -402,21 +407,15 @@
             <div>
               <h3>Bocetos del módulo</h3>
               <p>
-                Vista técnica con medidas principales y vista conceptual del volumen habitable.
+                Lámina técnica con planta, frente, lateral e isométrica del módulo.
               </p>
             </div>
           </div>
 
-          <div class="sketch-grid">
-            <article class="sketch-card">
-              <h4>Boceto técnico</h4>
-              <div id="technicalSketch" class="sketch-frame"></div>
-            </article>
-            <article class="sketch-card">
-              <h4>Vista conceptual</h4>
-              <div id="conceptSketch" class="sketch-frame"></div>
-            </article>
-          </div>
+          <article class="sketch-card sketch-card--full">
+            <h4>Lámina técnica</h4>
+            <div id="technicalSketch" class="sketch-frame"></div>
+          </article>
 
           <div class="table-header">
             <div>

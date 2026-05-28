@@ -232,6 +232,11 @@ button:hover {
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.76);
   border: 1px solid var(--line);
+  margin: 6px 0 28px;
+}
+
+.sketch-card--full {
+  padding: 20px;
 }
 
 .sketch-card h4 {
@@ -290,6 +295,35 @@ button:hover {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
+}
+
+.print-report__note {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(214, 125, 68, 0.25);
+  background: rgba(214, 125, 68, 0.08);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.commercial-box {
+  margin-top: 16px;
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(22, 49, 38, 0.04);
+}
+
+.commercial-box h3 {
+  margin: 0 0 10px;
+  font-size: 1rem;
+}
+
+.commercial-box p {
+  margin: 6px 0;
+  color: var(--text);
+  line-height: 1.5;
 }
 
 .cost-card {
@@ -426,8 +460,14 @@ tbody tr:last-child td {
 }
 
 @media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
   body {
     background: #fff;
+    font-size: 11px;
   }
 
   .page-shell {
@@ -437,7 +477,8 @@ tbody tr:last-child td {
 
   .hero,
   .form-panel,
-  .actions {
+  .actions,
+  .sketch-card {
     display: none !important;
   }
 
@@ -463,12 +504,37 @@ tbody tr:last-child td {
     background: #fff;
   }
 
+  .section-heading h2,
+  .table-header h3,
+  .sketch-card h4,
+  #printProjectTitle {
+    color: #000;
+  }
+
+  .print-report__header,
+  .print-report__costs,
+  .summary-grid,
+  .sketch-grid {
+    break-inside: avoid;
+  }
+
+  .print-report__note {
+    background: #fff;
+    border-color: #999;
+  }
+
   .table-wrap {
     overflow: visible;
   }
 
   table {
     min-width: 0;
+    font-size: 10px;
+  }
+
+  th,
+  td {
+    padding: 7px 8px;
   }
 
   .system-note {
