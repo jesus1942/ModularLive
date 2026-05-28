@@ -509,6 +509,38 @@ function renderTechnicalSketch(result) {
   const dimLabel = (x, y, txt, angle) =>
     mkText(x, y, txt, { size: 13, fill: "#5a6e63", rotate: angle ? `rotate(${angle} ${x} ${y})` : undefined });
 
+  // Distribute openings across walls (front bias for door, balanced for windows)
+  const distributeWindows = (n) => {
+    if (n <= 0) return { front: 0, back: 0, latA: 0, latB: 0 };
+    if (n === 1) return { front: 1, back: 0, latA: 0, latB: 0 };
+    if (n === 2) return { front: 1, back: 0, latA: 1, latB: 0 };
+    if (n === 3) return { front: 1, back: 1, latA: 1, latB: 0 };
+    const front = Math.ceil(n * 0.35);
+    let rem = n - front;
+    const back = Math.ceil(rem * 0.4);
+    rem -= back;
+    const latA = Math.ceil(rem / 2);
+    const latB = rem - latA;
+    return { front, back, latA, latB };
+  };
+  const distributeDoors = (n) => {
+    if (n <= 0) return { front: 0, back: 0, latA: 0 };
+    if (n === 1) return { front: 1, back: 0, latA: 0 };
+    const front = Math.min(n, Math.max(1, Math.ceil(n * 0.6)));
+    const back = Math.min(n - front, Math.ceil((n - front) * 0.7));
+    const latA = n - front - back;
+    return { front, back, latA };
+  };
+  const slots = (n, padding = 0.16) => {
+    if (n <= 0) return [];
+    if (n === 1) return [0.5];
+    const span = 1 - padding * 2;
+    return Array.from({ length: n }, (_, i) => padding + (i + 0.5) * span / n);
+  };
+
+  const wDist = distributeWindows(input.windowCount);
+  const dDist = distributeDoors(input.doorCount);
+
   // ── PLANTA ──
   const ps = Math.min(300 / input.length, 160 / input.width);
   const pw = input.length * ps, pd = input.width * ps;
@@ -516,13 +548,49 @@ function renderTechnicalSketch(result) {
   mkText(px + pw/2, py - 20, "PLANTA", { size: 19, weight: "bold" });
   addNode(rc.rectangle(px, py, pw, pd, rPlanO));
   addNode(rc.rectangle(px+14, py+14, pw-28, pd-28, rPlanI));
-  const ww = Math.max(20, input.windowWidth * ps);
-  [0.25, 0.75].forEach(f => {
-    addNode(rc.rectangle(px + pw*f - ww/2, py - 5, ww, 10, rWin));
-    addNode(rc.rectangle(px + pw*f - ww/2, py + pd - 5, ww, 10, rWin));
+
+  const ww = Math.max(16, input.windowWidth * ps);
+  const wwh = Math.max(16, input.windowWidth * ps);
+  const dwH = Math.max(16, input.doorWidth * ps);
+  const dwV = Math.max(16, input.doorWidth * ps);
+
+  // Lateral A (top edge, long side)
+  slots(wDist.latA).forEach((f) => {
+    addNode(rc.rectangle(px + pw * f - ww/2, py - 5, ww, 10, rWin));
   });
-  const dw = Math.max(18, input.doorWidth * ps);
-  addNode(rc.rectangle(px + pw - 5, py + pd*0.4 - dw/2, 10, dw, rDoor));
+  // Lateral B (bottom edge, long side)
+  slots(wDist.latB).forEach((f) => {
+    addNode(rc.rectangle(px + pw * f - ww/2, py + pd - 5, ww, 10, rWin));
+  });
+  // Front (right edge, short side) — door first, windows after
+  {
+    const frontTotal = wDist.front + dDist.front;
+    const pos = slots(frontTotal);
+    pos.slice(0, dDist.front).forEach((f) => {
+      addNode(rc.rectangle(px + pw - 5, py + pd * f - dwV/2, 10, dwV, rDoor));
+    });
+    pos.slice(dDist.front).forEach((f) => {
+      addNode(rc.rectangle(px + pw - 5, py + pd * f - wwh/2, 10, wwh, rWin));
+    });
+  }
+  // Back (left edge, short side)
+  {
+    const backTotal = wDist.back + dDist.back;
+    const pos = slots(backTotal);
+    pos.slice(0, dDist.back).forEach((f) => {
+      addNode(rc.rectangle(px - 5, py + pd * f - dwV/2, 10, dwV, rDoor));
+    });
+    pos.slice(dDist.back).forEach((f) => {
+      addNode(rc.rectangle(px - 5, py + pd * f - wwh/2, 10, wwh, rWin));
+    });
+  }
+  // Optional extra door on lateral A
+  if (dDist.latA > 0) {
+    slots(dDist.latA, 0.3).forEach((f) => {
+      addNode(rc.rectangle(px + pw * f - dwH/2, py - 5, dwH, 10, rDoor));
+    });
+  }
+
   // north arrow
   const nax = px + pw + 36, nay = py + pd/2;
   addNode(rc.line(nax, nay+16, nax, nay-16, { roughness: 0.4, stroke: "#2a3f35", strokeWidth: 1.5 }));
@@ -531,7 +599,10 @@ function renderTechnicalSketch(result) {
   dimLabel(px+pw/2, py+pd+46, `${input.length} m`);
   dimLine(px-28, py, px-28, py+pd);
   dimLabel(px-44, py+pd/2, `${input.width} m`, -90);
-  mkText(px+pw/2, py+pd/2+6, `${input.windowCount}V · ${input.doorCount}P`, { size: 14, fill: "#999" });
+  const openingLabel = input.windowCount === 0 && input.doorCount === 0
+    ? "sin aberturas"
+    : `${input.windowCount}V · ${input.doorCount}P`;
+  mkText(px+pw/2, py+pd/2+6, openingLabel, { size: 14, fill: "#999" });
 
   // ── FRENTE ──
   const es = Math.min(240 / input.width, 150 / input.height);
@@ -547,13 +618,22 @@ function renderTechnicalSketch(result) {
   addNode(rc.line(ex - rov + 4, ey - eh - 6, ex + ew + rov - 4, ey - eh - 3, { roughness: 0.3, stroke: "#9aae9a", strokeWidth: 0.7, strokeLineDash: [4, 3] }));
   const wW = Math.max(22, input.windowWidth*es), wH = Math.max(28, input.windowHeight*es);
   const wY = ey - eh*0.62;
-  [0.14, 0.65].forEach(f => {
-    addNode(rc.rectangle(ex+ew*f, wY, wW, wH, rWin));
-    addNode(rc.line(ex+ew*f+wW/2, wY, ex+ew*f+wW/2, wY+wH, { roughness: 0.4, stroke: "#3a6080", strokeWidth: 0.8 }));
-    addNode(rc.line(ex+ew*f, wY+wH/2, ex+ew*f+wW, wY+wH/2, { roughness: 0.4, stroke: "#3a6080", strokeWidth: 0.8 }));
-  });
   const dW = Math.max(26, input.doorWidth*es), dH = Math.max(60, input.doorHeight*es);
-  addNode(rc.rectangle(ex+ew*0.42, ey-dH, dW, dH, rDoor));
+  const frontTotalE = wDist.front + dDist.front;
+  const frontPosE = slots(frontTotalE);
+  frontPosE.slice(0, dDist.front).forEach((f) => {
+    addNode(rc.rectangle(ex + ew * f - dW/2, ey - dH, dW, dH, rDoor));
+    addNode(rc.line(ex + ew * f, ey - dH + 10, ex + ew * f, ey - 10, { roughness: 0.4, stroke: "#5a3010", strokeWidth: 0.7 }));
+  });
+  frontPosE.slice(dDist.front).forEach((f) => {
+    const wx = ex + ew * f - wW/2;
+    addNode(rc.rectangle(wx, wY, wW, wH, rWin));
+    addNode(rc.line(wx + wW/2, wY, wx + wW/2, wY + wH, { roughness: 0.4, stroke: "#3a6080", strokeWidth: 0.8 }));
+    addNode(rc.line(wx, wY + wH/2, wx + wW, wY + wH/2, { roughness: 0.4, stroke: "#3a6080", strokeWidth: 0.8 }));
+  });
+  if (frontTotalE === 0) {
+    mkText(ex + ew/2, ey - eh/2 + 4, "(muro ciego)", { size: 14, fill: "#a8b3ab" });
+  }
   dimLine(ex-28, ey, ex-28, ey-eh);
   dimLabel(ex-42, ey-eh/2, `${input.height} m`, -90);
   dimLine(ex, ey+28, ex+ew, ey+28);
@@ -570,7 +650,20 @@ function renderTechnicalSketch(result) {
   const srov = Math.min(input.roofOverhang * ss, 14);
   addNode(rc.rectangle(ssx - srov, ssy - sh - 10, sw + srov * 2, 10, rRoof));
   const sWW = Math.max(28, input.windowWidth*ss*0.8), sWH = Math.max(24, input.windowHeight*ss);
-  [0.2, 0.6].forEach(f => addNode(rc.rectangle(ssx+sw*f, ssy-sh*0.60, sWW, sWH, rWin)));
+  const sDW = Math.max(26, input.doorWidth*ss), sDH = Math.max(60, input.doorHeight*ss);
+  const latTotalS = wDist.latA + dDist.latA;
+  const latPosS = slots(latTotalS);
+  latPosS.slice(0, dDist.latA).forEach((f) => {
+    addNode(rc.rectangle(ssx + sw * f - sDW/2, ssy - sDH, sDW, sDH, rDoor));
+  });
+  latPosS.slice(dDist.latA).forEach((f) => {
+    const swx = ssx + sw * f - sWW/2;
+    addNode(rc.rectangle(swx, ssy - sh*0.60, sWW, sWH, rWin));
+    addNode(rc.line(swx + sWW/2, ssy - sh*0.60, swx + sWW/2, ssy - sh*0.60 + sWH, { roughness: 0.4, stroke: "#3a6080", strokeWidth: 0.8 }));
+  });
+  if (latTotalS === 0) {
+    mkText(ssx + sw/2, ssy - sh/2 + 4, "(muro ciego)", { size: 14, fill: "#a8b3ab" });
+  }
   dimLine(ssx, ssy+28, ssx+sw, ssy+28);
   dimLabel(ssx+sw/2, ssy+46, `${input.length} m`);
   dimLine(ssx-28, ssy, ssx-28, ssy-sh);
@@ -595,11 +688,36 @@ function renderTechnicalSketch(result) {
     [iox - iRov + iDx + iWx + iRov*2, ioy - iH - iDy + iWy],
     [iox + iWx + iRov, ioy - iH + iWy]
   ], { ...rRoof, fill: "#ddd5c4", hachureAngle: 60, seed: 32 }));
-  // front window
-  const iwinW = Math.max(16, input.windowWidth*is*0.5), iwinH = Math.max(22, input.windowHeight*is*0.6);
-  addNode(rc.rectangle(iox+iWx*0.3, ioy-iH*0.62+iWy*0.3, iwinW, iwinH, { ...rWin, seed:40 }));
-  // front door
-  addNode(rc.rectangle(iox+iWx*0.6, ioy-input.doorHeight*is*0.55+iWy*0.6, Math.max(20,input.doorWidth*is*0.5), Math.max(50,input.doorHeight*is*0.55), { ...rDoor, seed:45 }));
+  // Front face = parallelogram on iWx axis (left face of iso, width × height).
+  // Side face = parallelogram on iDx axis (right face, length × height).
+  const iwinW = Math.max(14, input.windowWidth*is*0.45), iwinH = Math.max(20, input.windowHeight*is*0.55);
+  const idW = Math.max(18, input.doorWidth*is*0.45), idH = Math.max(46, input.doorHeight*is*0.55);
+  // Openings on the front face (iWx direction)
+  const isoFrontTotal = wDist.front + dDist.front;
+  const isoFrontPos = slots(isoFrontTotal, 0.18);
+  isoFrontPos.slice(0, dDist.front).forEach((f, i) => {
+    const fx = iox + iWx * f - idW/2;
+    const fy = ioy + iWy * f - idH;
+    addNode(rc.rectangle(fx, fy, idW, idH, { ...rDoor, seed: 45 + i }));
+  });
+  isoFrontPos.slice(dDist.front).forEach((f, i) => {
+    const fx = iox + iWx * f - iwinW/2;
+    const fy = ioy + iWy * f - iH * 0.55;
+    addNode(rc.rectangle(fx, fy, iwinW, iwinH, { ...rWin, seed: 40 + i }));
+  });
+  // Openings on the side (lateral A) face — iDx direction
+  const isoLatTotal = wDist.latA + dDist.latA;
+  const isoLatPos = slots(isoLatTotal, 0.18);
+  isoLatPos.slice(0, dDist.latA).forEach((f, i) => {
+    const sx = iox + iWx + iDx * f;
+    const sy = ioy - iH + iWy - iDy * f + iH - idH;
+    addNode(rc.rectangle(sx, sy, idW, idH, { ...rDoor, seed: 55 + i }));
+  });
+  isoLatPos.slice(dDist.latA).forEach((f, i) => {
+    const sx = iox + iWx + iDx * f - iwinW/2;
+    const sy = ioy - iH * 0.55 + iWy - iDy * f;
+    addNode(rc.rectangle(sx, sy, iwinW, iwinH, { ...rWin, seed: 60 + i }));
+  });
   // ground shadow
   addNode(rc.ellipse(iox+iDx/2+iWx/2, ioy+iWy/2+10, iDx+iWx, 24, { roughness: 2, stroke:"none", fill:"rgba(100,80,60,0.1)", fillStyle:"solid", seed:50 }));
   // spec notes on right
