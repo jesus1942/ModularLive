@@ -33,6 +33,25 @@ const commercialBox = document.querySelector("#commercialBox");
 let latestResult;
 let renderScheduled = false;
 
+function showToast(message, duration = 2800) {
+  const container = document.querySelector("#toastContainer");
+  if (!container) return;
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add("toast--out");
+    toast.addEventListener("transitionend", () => toast.remove(), { once: true });
+  }, duration);
+}
+
+function animateMetric(element) {
+  element.classList.remove("metric-pop");
+  void element.offsetWidth;
+  element.classList.add("metric-pop");
+}
+
 function formDataToObject(currentForm) {
   return Object.fromEntries(new FormData(currentForm).entries());
 }
@@ -481,6 +500,11 @@ function renderProject() {
   heroArea.textContent = `${totals.area} m²`;
   heroItems.textContent = String(totals.items);
   heroPanels.textContent = `${Math.ceil(totals.claddingUnits)} u`;
+  animateMetric(heroArea);
+  animateMetric(heroItems);
+  animateMetric(heroPanels);
+
+  showToast(`${totals.area} m² · ${totals.items} ítems calculados`);
 }
 
 function scheduleRender() {

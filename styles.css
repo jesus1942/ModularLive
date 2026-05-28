@@ -470,6 +470,10 @@ tbody tr:last-child td {
     font-size: 11px;
   }
 
+  .app-nav {
+    display: none !important;
+  }
+
   .page-shell {
     width: 100%;
     padding: 0;
@@ -541,3 +545,299 @@ tbody tr:last-child td {
     background: #fff;
   }
 }
+
+/* ==================================================
+   APP NAVIGATION
+   ================================================== */
+.app-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(243, 241, 232, 0.92);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border-bottom: 1px solid var(--line);
+}
+
+.app-nav__inner {
+  width: min(1280px, calc(100% - 32px));
+  margin: 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-nav__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-nav__logo {
+  width: 26px;
+  height: 26px;
+}
+
+.app-nav__name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.app-nav__tagline {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--muted);
+  display: none;
+}
+
+@media (min-width: 600px) {
+  .app-nav__tagline {
+    display: block;
+  }
+}
+
+/* ==================================================
+   COLLAPSIBLE FORM SECTIONS
+   ================================================== */
+.form-section {
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+}
+
+.form-section__trigger {
+  display: flex;
+  align-items: center;
+  padding: 13px 18px;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+  gap: 10px;
+  background: rgba(22, 49, 38, 0.035);
+  transition: background 150ms ease;
+}
+
+.form-section__trigger:hover {
+  background: rgba(22, 49, 38, 0.07);
+}
+
+.form-section__trigger::-webkit-details-marker {
+  display: none;
+}
+
+.form-section__trigger h3 {
+  flex: 1;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+  margin: 0;
+  font-weight: 700;
+}
+
+.form-section__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.form-section__count {
+  font-size: 0.76rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.form-section__chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  transition: transform 220ms cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+details.form-section[open] .form-section__chevron {
+  transform: rotate(180deg);
+}
+
+.form-section__body {
+  padding: 16px 18px 18px;
+}
+
+/* ==================================================
+   BUTTON HIERARCHY
+   ================================================== */
+.actions {
+  align-items: center;
+}
+
+.actions-sep {
+  width: 1px;
+  height: 28px;
+  background: var(--line);
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  padding: 9px 14px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, transform 180ms ease;
+}
+
+.btn-ghost:hover {
+  background: rgba(22, 49, 38, 0.07);
+  color: var(--text);
+  transform: translateY(-1px);
+}
+
+.btn-sm {
+  padding: 8px 14px;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 640px) {
+  .actions-sep {
+    display: none;
+  }
+
+  .btn-ghost {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* ==================================================
+   TABLE ENHANCEMENTS
+   ================================================== */
+tbody tr {
+  transition: background 100ms ease;
+}
+
+tbody tr:hover td {
+  background: rgba(33, 64, 52, 0.04);
+}
+
+/* ==================================================
+   SUMMARY CARD ENHANCEMENTS
+   ================================================== */
+.summary-card {
+  transition: transform 140ms ease, box-shadow 140ms ease;
+  cursor: default;
+}
+
+.summary-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 28px rgba(22, 49, 38, 0.14);
+}
+
+/* ==================================================
+   HERO METRIC POP ANIMATION
+   ================================================== */
+@keyframes metric-pop {
+  0%   { transform: scale(0.88); opacity: 0.5; }
+  60%  { transform: scale(1.07); }
+  100% { transform: scale(1);    opacity: 1;   }
+}
+
+.metric-pop {
+  display: inline-block;
+  animation: metric-pop 340ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ==================================================
+   TOAST NOTIFICATIONS
+   ================================================== */
+.toast-container {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 9999;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.toast {
+  background: var(--accent);
+  color: #fdfaf4;
+  padding: 11px 20px;
+  border-radius: 999px;
+  font-size: 0.87rem;
+  font-weight: 600;
+  box-shadow: 0 8px 32px rgba(22, 49, 38, 0.38);
+  animation: toast-in 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: opacity 240ms ease, transform 240ms ease;
+  white-space: nowrap;
+}
+
+.toast--out {
+  opacity: 0;
+  transform: translateY(10px) scale(0.94);
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.88);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .toast-container {
+    bottom: 16px;
+    right: 12px;
+    left: 12px;
+    align-items: stretch;
+  }
+
+  .toast {
+    border-radius: 18px;
+    text-align: center;
+    white-space: normal;
+  }
+}
+
+/* ==================================================
+   INPUT FOCUS IMPROVEMENTS
+   ================================================== */
+input:focus,
+select:focus {
+  border-color: rgba(33, 64, 52, 0.4);
+  background: #fff;
+}
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 0.5;
+}
+
+/* ==================================================
+   RESULTS PANEL TRANSITION
+   ================================================== */
+.summary-card {
+  animation: reveal 320ms ease both;
+}
+
+.summary-grid .summary-card:nth-child(2) { animation-delay: 40ms; }
+.summary-grid .summary-card:nth-child(3) { animation-delay: 80ms; }
+.summary-grid .summary-card:nth-child(4) { animation-delay: 120ms; }
+.summary-grid .summary-card:nth-child(5) { animation-delay: 160ms; }
+.summary-grid .summary-card:nth-child(6) { animation-delay: 200ms; }

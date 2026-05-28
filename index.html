@@ -11,19 +11,41 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="assets/icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
     <title>ModularLive</title>
   </head>
   <body>
+    <nav class="app-nav">
+      <div class="app-nav__inner">
+        <div class="app-nav__brand">
+          <img
+            src="assets/icon.svg"
+            alt=""
+            class="app-nav__logo"
+            width="26"
+            height="26"
+          />
+          <span class="app-nav__name">ModularLive</span>
+        </div>
+        <span class="app-nav__tagline">Presupuestador de espacios modulares</span>
+      </div>
+    </nav>
+
     <div class="page-shell">
       <header class="hero">
         <div class="hero-copy">
-          <p class="eyebrow">Presupuestador de espacios modulares</p>
-          <h1>Calculadora integral de materiales estructurales</h1>
+          <p class="eyebrow">Calculadora estructural</p>
+          <h1>Materiales para espacios modulares</h1>
           <p class="hero-text">
-            Configura viviendas, oficinas, baños y otros módulos. La app estima
-            piso, paredes, techo, ventanas, puertas y genera una lista de
-            materiales exportable.
+            Configura viviendas, oficinas, baños y módulos personalizados. Estimá
+            piso, paredes, techo, aberturas y generá una lista exportable lista
+            para compra.
           </p>
         </div>
         <div class="hero-card">
@@ -165,214 +187,236 @@
               </label>
             </div>
 
-            <div class="section-heading compact">
-              <h3>Estructura</h3>
-            </div>
+            <details class="form-section" open>
+              <summary class="form-section__trigger">
+                <h3>Estructura</h3>
+                <span class="form-section__meta">
+                  <span class="form-section__count">7 campos</span>
+                  <svg class="form-section__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+              </summary>
+              <div class="field-grid form-section__body">
+                <label>
+                  Separación viguetas piso (m)
+                  <input
+                    type="number"
+                    name="floorSpacing"
+                    min="0.3"
+                    step="0.05"
+                    value="0.4"
+                  />
+                </label>
 
-            <div class="field-grid">
-              <label>
-                Separación viguetas piso (m)
-                <input
-                  type="number"
-                  name="floorSpacing"
-                  min="0.3"
-                  step="0.05"
-                  value="0.4"
-                />
-              </label>
+                <label>
+                  Separación montantes pared (m)
+                  <input
+                    type="number"
+                    name="wallSpacing"
+                    min="0.3"
+                    step="0.05"
+                    value="0.4"
+                  />
+                </label>
 
-              <label>
-                Separación montantes pared (m)
-                <input
-                  type="number"
-                  name="wallSpacing"
-                  min="0.3"
-                  step="0.05"
-                  value="0.4"
-                />
-              </label>
+                <label>
+                  Separación cabios techo (m)
+                  <input
+                    type="number"
+                    name="roofSpacing"
+                    min="0.3"
+                    step="0.05"
+                    value="0.4"
+                  />
+                </label>
 
-              <label>
-                Separación cabios techo (m)
-                <input
-                  type="number"
-                  name="roofSpacing"
-                  min="0.3"
-                  step="0.05"
-                  value="0.4"
-                />
-              </label>
+                <label>
+                  Voladizo de techo (m)
+                  <input
+                    type="number"
+                    name="roofOverhang"
+                    min="0"
+                    step="0.05"
+                    value="0.2"
+                  />
+                </label>
 
-              <label>
-                Voladizo de techo (m)
-                <input
-                  type="number"
-                  name="roofOverhang"
-                  min="0"
-                  step="0.05"
-                  value="0.2"
-                />
-              </label>
+                <label>
+                  Panel estructural estándar (m²)
+                  <input
+                    type="number"
+                    name="panelArea"
+                    min="1"
+                    step="0.1"
+                    value="2.98"
+                  />
+                </label>
 
-              <label>
-                Panel estructural estándar (m²)
-                <input
-                  type="number"
-                  name="panelArea"
-                  min="1"
-                  step="0.1"
-                  value="2.98"
-                />
-              </label>
+                <label>
+                  Merma general (%)
+                  <input
+                    type="number"
+                    name="wasteFactor"
+                    min="0"
+                    max="30"
+                    step="1"
+                    value="8"
+                  />
+                </label>
 
-              <label>
-                Merma general (%)
-                <input
-                  type="number"
-                  name="wasteFactor"
-                  min="0"
-                  max="30"
-                  step="1"
-                  value="8"
-                />
-              </label>
+                <label>
+                  Largo comercial del perfil (m)
+                  <input
+                    type="number"
+                    name="stockLength"
+                    min="3"
+                    step="0.5"
+                    value="6"
+                  />
+                </label>
+              </div>
+            </details>
 
-              <label>
-                Largo comercial del perfil (m)
-                <input
-                  type="number"
-                  name="stockLength"
-                  min="3"
-                  step="0.5"
-                  value="6"
-                />
-              </label>
-            </div>
+            <details class="form-section" open>
+              <summary class="form-section__trigger">
+                <h3>Aberturas</h3>
+                <span class="form-section__meta">
+                  <span class="form-section__count">6 campos</span>
+                  <svg class="form-section__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+              </summary>
+              <div class="field-grid form-section__body">
+                <label>
+                  Ventanas por módulo
+                  <input
+                    type="number"
+                    name="windowCount"
+                    min="0"
+                    step="1"
+                    value="4"
+                  />
+                </label>
 
-            <div class="section-heading compact">
-              <h3>Aberturas</h3>
-            </div>
+                <label>
+                  Ancho ventana (m)
+                  <input
+                    type="number"
+                    name="windowWidth"
+                    min="0.3"
+                    step="0.05"
+                    value="1.2"
+                  />
+                </label>
 
-            <div class="field-grid">
-              <label>
-                Ventanas por módulo
-                <input
-                  type="number"
-                  name="windowCount"
-                  min="0"
-                  step="1"
-                  value="4"
-                />
-              </label>
+                <label>
+                  Alto ventana (m)
+                  <input
+                    type="number"
+                    name="windowHeight"
+                    min="0.3"
+                    step="0.05"
+                    value="1"
+                  />
+                </label>
 
-              <label>
-                Ancho ventana (m)
-                <input
-                  type="number"
-                  name="windowWidth"
-                  min="0.3"
-                  step="0.05"
-                  value="1.2"
-                />
-              </label>
+                <label>
+                  Puertas por módulo
+                  <input
+                    type="number"
+                    name="doorCount"
+                    min="0"
+                    step="1"
+                    value="1"
+                  />
+                </label>
 
-              <label>
-                Alto ventana (m)
-                <input
-                  type="number"
-                  name="windowHeight"
-                  min="0.3"
-                  step="0.05"
-                  value="1"
-                />
-              </label>
+                <label>
+                  Ancho puerta (m)
+                  <input
+                    type="number"
+                    name="doorWidth"
+                    min="0.5"
+                    step="0.05"
+                    value="0.9"
+                  />
+                </label>
 
-              <label>
-                Puertas por módulo
-                <input
-                  type="number"
-                  name="doorCount"
-                  min="0"
-                  step="1"
-                  value="1"
-                />
-              </label>
+                <label>
+                  Alto puerta (m)
+                  <input
+                    type="number"
+                    name="doorHeight"
+                    min="1.8"
+                    step="0.05"
+                    value="2.1"
+                  />
+                </label>
+              </div>
+            </details>
 
-              <label>
-                Ancho puerta (m)
-                <input
-                  type="number"
-                  name="doorWidth"
-                  min="0.5"
-                  step="0.05"
-                  value="0.9"
-                />
-              </label>
+            <details class="form-section" open>
+              <summary class="form-section__trigger">
+                <h3>Cerramientos</h3>
+                <span class="form-section__meta">
+                  <span class="form-section__count">3 campos</span>
+                  <svg class="form-section__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+              </summary>
+              <div class="field-grid form-section__body">
+                <label>
+                  Exterior de muros
+                  <select name="wallExteriorCladding" id="wallExteriorCladding">
+                    <option value="corrugated_sheet">Chapa senoidal</option>
+                    <option value="trapezoidal_sheet">Chapa trapezoidal</option>
+                    <option value="cement_board">Placa cementicia</option>
+                    <option value="sandwich_panel">Panel sándwich</option>
+                  </select>
+                </label>
 
-              <label>
-                Alto puerta (m)
-                <input
-                  type="number"
-                  name="doorHeight"
-                  min="1.8"
-                  step="0.05"
-                  value="2.1"
-                />
-              </label>
-            </div>
+                <label>
+                  Interior de muros
+                  <select name="wallInteriorLining" id="wallInteriorLining">
+                    <option value="drywall">Placa de durlock</option>
+                    <option value="moisture_drywall">Placa de durlock antihumedad</option>
+                    <option value="cement_board">Placa cementicia</option>
+                    <option value="frp_panel">Panel FRP lavable</option>
+                  </select>
+                </label>
 
-            <div class="section-heading compact">
-              <h3>Cerramientos</h3>
-            </div>
-
-            <div class="field-grid">
-              <label>
-                Exterior de muros
-                <select name="wallExteriorCladding" id="wallExteriorCladding">
-                  <option value="corrugated_sheet">Chapa senoidal</option>
-                  <option value="trapezoidal_sheet">Chapa trapezoidal</option>
-                  <option value="cement_board">Placa cementicia</option>
-                  <option value="sandwich_panel">Panel sándwich</option>
-                </select>
-              </label>
-
-              <label>
-                Interior de muros
-                <select name="wallInteriorLining" id="wallInteriorLining">
-                  <option value="drywall">Placa de durlock</option>
-                  <option value="moisture_drywall">Placa de durlock antihumedad</option>
-                  <option value="cement_board">Placa cementicia</option>
-                  <option value="frp_panel">Panel FRP lavable</option>
-                </select>
-              </label>
-
-              <label>
-                Cubierta exterior
-                <select name="roofCladding" id="roofCladding">
-                  <option value="corrugated_sheet">Chapa senoidal</option>
-                  <option value="trapezoidal_sheet">Chapa trapezoidal</option>
-                  <option value="sandwich_panel">Panel sándwich</option>
-                  <option value="cement_board">Placa cementicia</option>
-                </select>
-              </label>
-            </div>
+                <label>
+                  Cubierta exterior
+                  <select name="roofCladding" id="roofCladding">
+                    <option value="corrugated_sheet">Chapa senoidal</option>
+                    <option value="trapezoidal_sheet">Chapa trapezoidal</option>
+                    <option value="sandwich_panel">Panel sándwich</option>
+                    <option value="cement_board">Placa cementicia</option>
+                  </select>
+                </label>
+              </div>
+            </details>
 
             <div class="actions">
               <button type="submit" class="primary">Recalcular</button>
               <button type="button" id="presetButton" class="secondary">
                 Aplicar preset
               </button>
-              <button type="button" id="printButton" class="secondary">
-                Imprimir informe
+              <div class="actions-sep" aria-hidden="true"></div>
+              <button type="button" id="csvButton" class="btn-ghost btn-sm">
+                CSV
               </button>
-              <button type="button" id="csvButton" class="secondary">
-                Exportar CSV
+              <button type="button" id="reportButton" class="btn-ghost btn-sm">
+                HTML
               </button>
-              <button type="button" id="reportButton" class="secondary">
-                Exportar informe
+              <button type="button" id="jsonButton" class="btn-ghost btn-sm">
+                JSON
               </button>
-              <button type="button" id="jsonButton" class="secondary">
-                Exportar JSON
+              <button type="button" id="printButton" class="btn-ghost btn-sm">
+                Imprimir
               </button>
             </div>
           </form>
@@ -382,7 +426,7 @@
           <div class="section-heading">
             <h2>Resumen técnico</h2>
             <p id="projectSummary">
-              Completa o ajusta los datos para generar la lista de materiales.
+              Completá o ajustá los datos para generar la lista de materiales.
             </p>
           </div>
 
@@ -480,6 +524,8 @@
         <small class="summary-note"></small>
       </article>
     </template>
+
+    <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
     <script type="module" src="app.js"></script>
   </body>
