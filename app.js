@@ -117,40 +117,73 @@ function renderSummaryCards(cards) {
   });
 }
 
+const PRICES_KEY = 'modularlive_prices';
+function getPrices() {
+  try { return JSON.parse(localStorage.getItem(PRICES_KEY) || '{}'); }
+  catch { return {}; }
+}
+function savePrice(materialName, price) {
+  const prices = getPrices();
+  if (price > 0) prices[materialName] = price;
+  else delete prices[materialName];
+  localStorage.setItem(PRICES_KEY, JSON.stringify(prices));
+}
+
 function renderMaterials(materials) {
-  tableBody.innerHTML = materials
-    .map(
-      (item) => `
-        <tr>
-          <td>${item.scope}</td>
-          <td>${item.category}</td>
-          <td>${item.material}</td>
-          <td>${item.unit}</td>
-          <td>${item.quantity}</td>
-          <td>${item.profileCount === null ? "-" : `${item.profileCount} barras`}</td>
-          <td>${item.detail}</td>
-        </tr>
-      `
-    )
-    .join("");
+  const prices = getPrices();
+  tableBody.innerHTML = materials.map(item => {
+    const price = prices[item.material] || '';
+    const qty = parseFloat(item.quantity) || 0;
+    const total = price && qty ? formatCurrency(qty * parseFloat(price)) : '—';
+    const mlUrl = `https://listado.mercadolibre.com.ar/${encodeURIComponent(item.material)}`;
+    return `<tr>
+      <td>${item.scope}</td>
+      <td>${item.category}</td>
+      <td>${item.material}</td>
+      <td>${item.unit}</td>
+      <td>${item.quantity}</td>
+      <td>${item.profileCount === null ? '-' : `${item.profileCount} barras`}</td>
+      <td><input class="price-input" type="number" min="0" step="100" placeholder="$ 0" value="${escapeHtml(String(price))}" data-material="${escapeHtml(item.material)}" /></td>
+      <td class="price-total">${total}</td>
+      <td><a href="${mlUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="Buscar en MercadoLibre Argentina">ML</a></td>
+    </tr>`;
+  }).join('');
 }
 
 function renderConsolidatedMaterials(materials) {
-  consolidatedTableBody.innerHTML = materials
-    .map(
-      (item) => `
-        <tr>
-          <td>${item.scope}</td>
-          <td>${item.category}</td>
-          <td>${item.material}</td>
-          <td>${item.unit}</td>
-          <td>${item.quantity}</td>
-          <td>${item.profileCount === null ? "-" : `${item.profileCount} barras`}</td>
-          <td>${item.detail}</td>
-        </tr>
-      `
-    )
-    .join("");
+  const prices = getPrices();
+  consolidatedTableBody.innerHTML = materials.map(item => {
+    const price = prices[item.material] || '';
+    const qty = parseFloat(item.quantity) || 0;
+    const total = price && qty ? formatCurrency(qty * parseFloat(price)) : '—';
+    const mlUrl = `https://listado.mercadolibre.com.ar/${encodeURIComponent(item.material)}`;
+    return `<tr>
+      <td>${item.scope}</td>
+      <td>${item.category}</td>
+      <td>${item.material}</td>
+      <td>${item.unit}</td>
+      <td>${item.quantity}</td>
+      <td>${item.profileCount === null ? '-' : `${item.profileCount} barras`}</td>
+      <td><input class="price-input" type="number" min="0" step="100" placeholder="$ 0" value="${escapeHtml(String(price))}" data-material="${escapeHtml(item.material)}" /></td>
+      <td class="price-total">${total}</td>
+      <td><a href="${mlUrl}" target="_blank" rel="noopener noreferrer" class="ml-link" title="Buscar en MercadoLibre Argentina">ML</a></td>
+    </tr>`;
+  }).join('');
+}
+
+function refreshPriceTotals() {
+  const prices = getPrices();
+  document.querySelectorAll('tr:has(.price-input)').forEach(row => {
+    const input = row.querySelector('.price-input');
+    const totalCell = row.querySelector('.price-total');
+    if (!input || !totalCell) return;
+    const mat = input.dataset.material;
+    const price = prices[mat] || 0;
+    // get qty from the 5th td (index 4)
+    const cells = row.querySelectorAll('td');
+    const qty = parseFloat(cells[4]?.textContent) || 0;
+    totalCell.textContent = price && qty ? formatCurrency(qty * price) : '—';
+  });
 }
 
 function formatCurrency(value) {
@@ -330,96 +363,172 @@ function openPrintableReport(result) {
 
 function renderTechnicalSketch(result) {
   const { input } = result;
-  const totalWidth = 1180;
-  const totalHeight = 860;
-  const planScale = Math.min(320 / input.length, 180 / input.width);
-  const elevScale = Math.min(260 / input.width, 170 / input.height);
-  const sideScale = Math.min(320 / input.length, 170 / input.height);
-  const isoScale = 34;
-  const planWidth = input.length * planScale;
-  const planDepth = input.width * planScale;
-  const frontWidth = input.width * elevScale;
-  const frontHeight = input.height * elevScale;
-  const sideWidth = input.length * sideScale;
-  const sideHeight = input.height * sideScale;
-  const roofOverhangFront = input.roofOverhang * elevScale;
-  const roofOverhangSide = input.roofOverhang * sideScale;
-  const planX = 70;
-  const planY = 120;
-  const frontX = 720;
-  const frontBaseY = 310;
-  const sideX = 70;
-  const sideBaseY = 700;
-  const isoOriginX = 780;
-  const isoOriginY = 690;
+  const W = 1180, H = 860;
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Boceto del módulo");
+  technicalSketch.innerHTML = "";
+  technicalSketch.appendChild(svg);
 
-  const isoLength = input.length * isoScale;
-  const isoWidth = input.width * isoScale;
-  const isoHeight = input.height * isoScale;
-  const isoDx = isoLength * 0.88;
-  const isoDy = isoLength * 0.42;
-  const isoWx = isoWidth * 0.88;
-  const isoWy = isoWidth * 0.42;
+  if (!window.rough) return;
+  const rc = rough.svg(svg);
 
-  const dimLine = (x1, y1, x2, y2, label, tx, ty, rotate = "") => `
-    <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#1f3a30" stroke-width="1.6" marker-start="url(#arrow)" marker-end="url(#arrow)"></line>
-    <text x="${tx}" y="${ty}" text-anchor="middle" font-size="16" font-family="IBM Plex Sans, sans-serif" fill="#1f3a30" ${rotate}>${label}</text>
+  const addNode = (node) => svg.appendChild(node);
+  const mkText = (x, y, txt, opts = {}) => {
+    const t = document.createElementNS(ns, "text");
+    t.setAttribute("x", x); t.setAttribute("y", y);
+    t.setAttribute("text-anchor", opts.anchor || "middle");
+    t.setAttribute("font-size", opts.size || 15);
+    t.setAttribute("font-family", opts.font || "Caveat, cursive");
+    t.setAttribute("fill", opts.fill || "#2a3f35");
+    if (opts.weight) t.setAttribute("font-weight", opts.weight);
+    if (opts.rotate) t.setAttribute("transform", opts.rotate);
+    t.textContent = txt;
+    addNode(t);
+    return t;
+  };
+
+  // Paper background with noise texture
+  const defs = document.createElementNS(ns, "defs");
+  defs.innerHTML = `
+    <filter id="sk-noise"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/><feBlend in="SourceGraphic" mode="multiply"/></filter>
   `;
+  addNode(defs);
+  const bg = document.createElementNS(ns, "rect");
+  bg.setAttribute("width", W); bg.setAttribute("height", H); bg.setAttribute("fill", "#faf8f2");
+  addNode(bg);
+  const noise = document.createElementNS(ns, "rect");
+  noise.setAttribute("width", W); noise.setAttribute("height", H);
+  noise.setAttribute("fill", "rgba(130,105,80,0.07)"); noise.setAttribute("filter", "url(#sk-noise)");
+  addNode(noise);
 
-  technicalSketch.innerHTML = `
-    <svg viewBox="0 0 ${totalWidth} ${totalHeight}" role="img" aria-label="Lámina técnica del módulo">
-      <defs>
-        <marker id="arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
-          <path d="M0,0 L8,4 L0,8 Z" fill="#214034"></path>
-        </marker>
-      </defs>
-      <rect x="0" y="0" width="${totalWidth}" height="${totalHeight}" fill="#fcfbf7"></rect>
-      <text x="54" y="56" font-size="30" font-family="Avenir Next, Segoe UI, sans-serif" fill="#163126">Lámina técnica del módulo</text>
-      <text x="54" y="84" font-size="15" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">${input.projectName} | ${input.quantity} módulo(s) iguales | ${input.length} x ${input.width} x ${input.height} m</text>
+  // Title
+  mkText(W/2, 46, "Boceto técnico del módulo", { size: 26, weight: "700", fill: "#1a3028" });
+  mkText(W/2, 72, `${input.projectName}  ·  ${input.quantity} módulo(s)  ·  ${input.length} × ${input.width} × ${input.height} m`, { size: 15, fill: "#5d6c64" });
 
-      <rect x="36" y="102" width="420" height="250" rx="18" fill="#fff" stroke="#d8d0c4"></rect>
-      <text x="60" y="136" font-size="22" font-family="IBM Plex Sans, sans-serif" fill="#163126">Planta</text>
-      <rect x="${planX}" y="${planY}" width="${planWidth}" height="${planDepth}" rx="6" fill="#fff" stroke="#214034" stroke-width="2"></rect>
-      <rect x="${planX + 12}" y="${planY + 12}" width="${planWidth - 24}" height="${planDepth - 24}" rx="4" fill="none" stroke="#d67d44" stroke-dasharray="8 6" stroke-width="2"></rect>
-      ${dimLine(planX, planY + planDepth + 36, planX + planWidth, planY + planDepth + 36, `${input.length} m`, planX + planWidth / 2, planY + planDepth + 28)}
-      ${dimLine(planX - 26, planY, planX - 26, planY + planDepth, `${input.width} m`, planX - 38, planY + planDepth / 2, `transform="rotate(-90 ${planX - 38} ${planY + planDepth / 2})"`)}
-      <text x="${planX + 14}" y="${planY + 28}" font-size="13" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">Aberturas: ${input.windowCount} ventanas / ${input.doorCount} puertas</text>
+  // Rough style options
+  const rWall   = { roughness: 1.4, stroke: "#1f3a30", strokeWidth: 2.2, fill: "#fffef9", fillStyle: "solid", seed: 42 };
+  const rRoof   = { roughness: 2.0, stroke: "#1f3a30", strokeWidth: 2, fill: "#e8dfd2", fillStyle: "hachure", hachureAngle: 40, hachureGap: 7, fillWeight: 0.7, seed: 13 };
+  const rWin    = { roughness: 0.7, stroke: "#1a5878", strokeWidth: 1.5, fill: "#cce5f0", fillStyle: "solid", seed: 7 };
+  const rDoor   = { roughness: 0.9, stroke: "#5a3010", strokeWidth: 1.5, fill: "#ddd0bc", fillStyle: "solid", seed: 5 };
+  const rDim    = { roughness: 0.2, stroke: "#7a8c82", strokeWidth: 0.9, seed: 1 };
+  const rPlanO  = { roughness: 1.6, stroke: "#1f3a30", strokeWidth: 2.8, fill: "#f5f3ec", fillStyle: "solid", seed: 8 };
+  const rPlanI  = { roughness: 0.7, stroke: "#c67040", strokeWidth: 1.2, fill: "none", strokeLineDash: [6, 5], seed: 3 };
+  const rGround = { roughness: 3.0, stroke: "#8a7060", strokeWidth: 1.5, seed: 99 };
+  const rIsoF   = { roughness: 1.2, stroke: "#1f3a30", strokeWidth: 2, fill: "#f0e8d8", fillStyle: "solid", seed: 20 };
+  const rIsoS   = { roughness: 1.2, stroke: "#1f3a30", strokeWidth: 2, fill: "#d8cfc0", fillStyle: "hachure", hachureAngle: -40, hachureGap: 9, fillWeight: 0.6, seed: 21 };
+  const rIsoT   = { roughness: 1.4, stroke: "#1f3a30", strokeWidth: 2, fill: "#e0d5c5", fillStyle: "solid", seed: 22 };
 
-      <rect x="488" y="102" width="320" height="250" rx="18" fill="#fff" stroke="#d8d0c4"></rect>
-      <text x="512" y="136" font-size="22" font-family="IBM Plex Sans, sans-serif" fill="#163126">Frente</text>
-      <rect x="${frontX}" y="${frontBaseY - frontHeight}" width="${frontWidth}" height="${frontHeight}" rx="4" fill="#fff" stroke="#214034" stroke-width="2"></rect>
-      <polygon points="${frontX - roofOverhangFront},${frontBaseY - frontHeight} ${frontX + frontWidth / 2},${frontBaseY - frontHeight - roofOverhangFront * 0.8} ${frontX + frontWidth + roofOverhangFront},${frontBaseY - frontHeight}" fill="#e7ded0" stroke="#214034" stroke-width="2"></polygon>
-      <rect x="${frontX + frontWidth * 0.12}" y="${frontBaseY - frontHeight * 0.58}" width="${Math.max(24, frontWidth * 0.2)}" height="${Math.max(32, frontHeight * 0.24)}" fill="#d9eef7" stroke="#214034" stroke-width="1.5"></rect>
-      <rect x="${frontX + frontWidth * 0.68}" y="${frontBaseY - frontHeight * 0.58}" width="${Math.max(24, frontWidth * 0.2)}" height="${Math.max(32, frontHeight * 0.24)}" fill="#d9eef7" stroke="#214034" stroke-width="1.5"></rect>
-      <rect x="${frontX + frontWidth * 0.4}" y="${frontBaseY - frontHeight * 0.42}" width="${Math.max(30, frontWidth * 0.18)}" height="${Math.max(78, frontHeight * 0.42)}" fill="#eadfca" stroke="#214034" stroke-width="1.5"></rect>
-      ${dimLine(frontX - 28, frontBaseY, frontX - 28, frontBaseY - frontHeight, `${input.height} m`, frontX - 42, frontBaseY - frontHeight / 2, `transform="rotate(-90 ${frontX - 42} ${frontBaseY - frontHeight / 2})"`)}
-      ${dimLine(frontX, frontBaseY + 32, frontX + frontWidth, frontBaseY + 32, `${input.width} m`, frontX + frontWidth / 2, frontBaseY + 24)}
+  const dimLine = (x1, y1, x2, y2) => {
+    addNode(rc.line(x1, y1, x2, y2, rDim));
+    const len = Math.sqrt((x2-x1)**2+(y2-y1)**2);
+    const nx = -(y2-y1)/len * 6, ny = (x2-x1)/len * 6;
+    addNode(rc.line(x1, y1, x1+nx, y1+ny, rDim));
+    addNode(rc.line(x2, y2, x2+nx, y2+ny, rDim));
+  };
+  const dimLabel = (x, y, txt, angle) =>
+    mkText(x, y, txt, { size: 13, fill: "#5a6e63", rotate: angle ? `rotate(${angle} ${x} ${y})` : undefined });
 
-      <rect x="36" y="406" width="420" height="250" rx="18" fill="#fff" stroke="#d8d0c4"></rect>
-      <text x="60" y="440" font-size="22" font-family="IBM Plex Sans, sans-serif" fill="#163126">Lateral</text>
-      <rect x="${sideX}" y="${sideBaseY - sideHeight}" width="${sideWidth}" height="${sideHeight}" rx="4" fill="#fff" stroke="#214034" stroke-width="2"></rect>
-      <polygon points="${sideX - roofOverhangSide},${sideBaseY - sideHeight} ${sideX + sideWidth * 0.5},${sideBaseY - sideHeight - roofOverhangSide * 0.7} ${sideX + sideWidth + roofOverhangSide},${sideBaseY - sideHeight}" fill="#e7ded0" stroke="#214034" stroke-width="2"></polygon>
-      <rect x="${sideX + sideWidth * 0.18}" y="${sideBaseY - sideHeight * 0.54}" width="${Math.max(36, sideWidth * 0.16)}" height="${Math.max(30, sideHeight * 0.22)}" fill="#d9eef7" stroke="#214034" stroke-width="1.5"></rect>
-      <rect x="${sideX + sideWidth * 0.56}" y="${sideBaseY - sideHeight * 0.54}" width="${Math.max(36, sideWidth * 0.16)}" height="${Math.max(30, sideHeight * 0.22)}" fill="#d9eef7" stroke="#214034" stroke-width="1.5"></rect>
-      ${dimLine(sideX, sideBaseY + 32, sideX + sideWidth, sideBaseY + 32, `${input.length} m`, sideX + sideWidth / 2, sideBaseY + 24)}
-      ${dimLine(sideX - 28, sideBaseY, sideX - 28, sideBaseY - sideHeight, `${input.height} m`, sideX - 42, sideBaseY - sideHeight / 2, `transform="rotate(-90 ${sideX - 42} ${sideBaseY - sideHeight / 2})"`)}
+  // ── PLANTA ──
+  const ps = Math.min(300 / input.length, 160 / input.width);
+  const pw = input.length * ps, pd = input.width * ps;
+  const px = 68, py = 122;
+  mkText(px + pw/2, py - 20, "PLANTA", { size: 19, weight: "bold" });
+  addNode(rc.rectangle(px, py, pw, pd, rPlanO));
+  addNode(rc.rectangle(px+14, py+14, pw-28, pd-28, rPlanI));
+  const ww = Math.max(20, input.windowWidth * ps);
+  [0.25, 0.75].forEach(f => {
+    addNode(rc.rectangle(px + pw*f - ww/2, py - 5, ww, 10, rWin));
+    addNode(rc.rectangle(px + pw*f - ww/2, py + pd - 5, ww, 10, rWin));
+  });
+  const dw = Math.max(18, input.doorWidth * ps);
+  addNode(rc.rectangle(px + pw - 5, py + pd*0.4 - dw/2, 10, dw, rDoor));
+  // north arrow
+  const nax = px + pw + 36, nay = py + pd/2;
+  addNode(rc.line(nax, nay+16, nax, nay-16, { roughness: 0.4, stroke: "#2a3f35", strokeWidth: 1.5 }));
+  mkText(nax, nay-22, "N", { size: 13, weight: "bold", fill: "#2a3f35" });
+  dimLine(px, py+pd+28, px+pw, py+pd+28);
+  dimLabel(px+pw/2, py+pd+46, `${input.length} m`);
+  dimLine(px-28, py, px-28, py+pd);
+  dimLabel(px-44, py+pd/2, `${input.width} m`, -90);
+  mkText(px+pw/2, py+pd/2+6, `${input.windowCount}V · ${input.doorCount}P`, { size: 14, fill: "#999" });
 
-      <rect x="488" y="406" width="656" height="380" rx="18" fill="#fff" stroke="#d8d0c4"></rect>
-      <text x="512" y="440" font-size="22" font-family="IBM Plex Sans, sans-serif" fill="#163126">Isométrica</text>
-      <polygon points="${isoOriginX},${isoOriginY - isoHeight} ${isoOriginX + isoDx},${isoOriginY - isoHeight - isoDy} ${isoOriginX + isoDx + isoWx},${isoOriginY - isoHeight - isoDy + isoWy} ${isoOriginX + isoWx},${isoOriginY - isoHeight + isoWy}" fill="#e8dfd2" stroke="#214034" stroke-width="2"></polygon>
-      <polygon points="${isoOriginX},${isoOriginY - isoHeight} ${isoOriginX + isoWx},${isoOriginY - isoHeight + isoWy} ${isoOriginX + isoWx},${isoOriginY + isoWy} ${isoOriginX},${isoOriginY}" fill="#c8874c" stroke="#214034" stroke-width="2"></polygon>
-      <polygon points="${isoOriginX + isoWx},${isoOriginY - isoHeight + isoWy} ${isoOriginX + isoDx + isoWx},${isoOriginY - isoHeight - isoDy + isoWy} ${isoOriginX + isoDx + isoWx},${isoOriginY - isoDy + isoWy} ${isoOriginX + isoWx},${isoOriginY + isoWy}" fill="#efe3d0" stroke="#214034" stroke-width="2"></polygon>
-      <rect x="${isoOriginX + isoWx * 0.48}" y="${isoOriginY - isoHeight * 0.34}" width="48" height="96" transform="skewY(26)" fill="#e5d4bd" stroke="#214034" stroke-width="2"></rect>
-      <polygon points="${isoOriginX + 44},${isoOriginY - isoHeight * 0.6} ${isoOriginX + 92},${isoOriginY - isoHeight * 0.6 + 20} ${isoOriginX + 92},${isoOriginY - isoHeight * 0.38 + 20} ${isoOriginX + 44},${isoOriginY - isoHeight * 0.38}" fill="#b9dceb" stroke="#214034" stroke-width="1.5"></polygon>
-      <polygon points="${isoOriginX + isoWx + 44},${isoOriginY - isoHeight * 0.62 + 16} ${isoOriginX + isoWx + 92},${isoOriginY - isoHeight * 0.62 - 8} ${isoOriginX + isoWx + 92},${isoOriginY - isoHeight * 0.38 - 8} ${isoOriginX + isoWx + 44},${isoOriginY - isoHeight * 0.38 + 16}" fill="#b9dceb" stroke="#214034" stroke-width="1.5"></polygon>
-      <text x="512" y="484" font-size="14" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">Bastidor principal: ${result.system.mainFrameSection}</text>
-      <text x="512" y="508" font-size="14" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">Piso / techo: ${result.system.floorJoist}</text>
-      <text x="512" y="532" font-size="14" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">Muros exteriores: ${result.cladding.wallExteriorCladding.label}</text>
-      <text x="512" y="556" font-size="14" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">Muros interiores: ${result.cladding.wallInteriorLining.label}</text>
-      <text x="512" y="580" font-size="14" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">Cubierta: ${result.cladding.roofCladding.label}</text>
-      <text x="512" y="604" font-size="14" font-family="IBM Plex Sans, sans-serif" fill="#5d6c64">Cantidad: ${input.quantity} módulo(s) idénticos</text>
-    </svg>
-  `;
+  // ── FRENTE ──
+  const es = Math.min(240 / input.width, 150 / input.height);
+  const ew = input.width * es, eh = input.height * es;
+  const ex = 580, ey = 122 + eh;
+  mkText(ex + ew/2, ey-eh-20, "FRENTE", { size: 19, weight: "bold" });
+  addNode(rc.line(ex-30, ey, ex+ew+30, ey, rGround));
+  addNode(rc.rectangle(ex, ey-eh, ew, eh, rWall));
+  const rov = input.roofOverhang * es;
+  addNode(rc.polygon([[ex-rov, ey-eh],[ex+ew/2, ey-eh-rov*0.9],[ex+ew+rov, ey-eh]], rRoof));
+  const wW = Math.max(22, input.windowWidth*es), wH = Math.max(28, input.windowHeight*es);
+  const wY = ey - eh*0.62;
+  [0.14, 0.65].forEach(f => {
+    addNode(rc.rectangle(ex+ew*f, wY, wW, wH, rWin));
+    addNode(rc.line(ex+ew*f+wW/2, wY, ex+ew*f+wW/2, wY+wH, { roughness: 0.4, stroke: "#3a6080", strokeWidth: 0.8 }));
+    addNode(rc.line(ex+ew*f, wY+wH/2, ex+ew*f+wW, wY+wH/2, { roughness: 0.4, stroke: "#3a6080", strokeWidth: 0.8 }));
+  });
+  const dW = Math.max(26, input.doorWidth*es), dH = Math.max(60, input.doorHeight*es);
+  addNode(rc.rectangle(ex+ew*0.42, ey-dH, dW, dH, rDoor));
+  dimLine(ex-28, ey, ex-28, ey-eh);
+  dimLabel(ex-42, ey-eh/2, `${input.height} m`, -90);
+  dimLine(ex, ey+28, ex+ew, ey+28);
+  dimLabel(ex+ew/2, ey+46, `${input.width} m`);
+
+  // ── LATERAL ──
+  const ss = Math.min(300 / input.length, 140 / input.height);
+  const sw = input.length * ss, sh = input.height * ss;
+  const ssx = 68, ssy = 700;
+  mkText(ssx+sw/2, ssy-sh-20, "LATERAL", { size: 19, weight: "bold" });
+  addNode(rc.line(ssx-30, ssy, ssx+sw+30, ssy, rGround));
+  addNode(rc.rectangle(ssx, ssy-sh, sw, sh, rWall));
+  const srov = input.roofOverhang * ss;
+  addNode(rc.polygon([[ssx-srov, ssy-sh],[ssx+sw/2, ssy-sh-srov*0.8],[ssx+sw+srov, ssy-sh]], rRoof));
+  const sWW = Math.max(28, input.windowWidth*ss*0.8), sWH = Math.max(24, input.windowHeight*ss);
+  [0.2, 0.6].forEach(f => addNode(rc.rectangle(ssx+sw*f, ssy-sh*0.60, sWW, sWH, rWin)));
+  dimLine(ssx, ssy+28, ssx+sw, ssy+28);
+  dimLabel(ssx+sw/2, ssy+46, `${input.length} m`);
+  dimLine(ssx-28, ssy, ssx-28, ssy-sh);
+  dimLabel(ssx-42, ssy-sh/2, `${input.height} m`, -90);
+
+  // ── ISOMÉTRICA ──
+  const is = 30;
+  const iL = input.length*is, iW = input.width*is, iH = input.height*is;
+  const iDx = iL*0.85, iDy = iL*0.4, iWx = iW*0.85, iWy = iW*0.4;
+  const iox = 790, ioy = 720;
+  mkText(iox+(iDx+iWx)/2-20, ioy-iH-44, "ISOMÉTRICA", { size: 19, weight: "bold" });
+  // faces
+  addNode(rc.polygon([[iox,ioy],[iox,ioy-iH],[iox+iWx,ioy-iH+iWy],[iox+iWx,ioy+iWy]], rIsoF));
+  addNode(rc.polygon([[iox+iWx,ioy+iWy],[iox+iWx,ioy-iH+iWy],[iox+iWx+iDx,ioy-iH+iWy-iDy],[iox+iWx+iDx,ioy+iWy-iDy]], rIsoS));
+  addNode(rc.polygon([[iox,ioy-iH],[iox+iDx,ioy-iH-iDy],[iox+iDx+iWx,ioy-iH-iDy+iWy],[iox+iWx,ioy-iH+iWy]], rIsoT));
+  // roof
+  const pk = [iox+iWx/2, ioy-iH+iWy/2-iH*0.28];
+  const pkR = [iox+iWx/2+iDx, ioy-iH+iWy/2-iDy-iH*0.28];
+  addNode(rc.polygon([[iox,ioy-iH],pk,[iox+iWx,ioy-iH+iWy]], { ...rRoof, seed:30 }));
+  addNode(rc.polygon([[iox+iDx,ioy-iH-iDy],pkR,[iox+iDx+iWx,ioy-iH-iDy+iWy]], { ...rRoof, seed:31 }));
+  addNode(rc.line(pk[0],pk[1],pkR[0],pkR[1], { roughness: 0.8, stroke: "#1f3a30", strokeWidth: 1.8 }));
+  // front window
+  const iwinW = Math.max(16, input.windowWidth*is*0.5), iwinH = Math.max(22, input.windowHeight*is*0.6);
+  addNode(rc.rectangle(iox+iWx*0.3, ioy-iH*0.62+iWy*0.3, iwinW, iwinH, { ...rWin, seed:40 }));
+  // front door
+  addNode(rc.rectangle(iox+iWx*0.6, ioy-input.doorHeight*is*0.55+iWy*0.6, Math.max(20,input.doorWidth*is*0.5), Math.max(50,input.doorHeight*is*0.55), { ...rDoor, seed:45 }));
+  // ground shadow
+  addNode(rc.ellipse(iox+iDx/2+iWx/2, ioy+iWy/2+10, iDx+iWx, 24, { roughness: 2, stroke:"none", fill:"rgba(100,80,60,0.1)", fillStyle:"solid", seed:50 }));
+  // spec notes on right
+  const noteX = iox + iDx + iWx + 18, noteY = ioy - iH + 10;
+  const specs = [
+    `Bastidor: ${result.system.mainFrameSection}`,
+    `Vigueta: ${result.system.floorJoist.split(" ").slice(0,3).join(" ")}`,
+    `Ext: ${result.cladding.wallExteriorCladding.label}`,
+    `Cubierta: ${result.cladding.roofCladding.label.split(" ").slice(0,3).join(" ")}`
+  ];
+  specs.forEach((s, i) => {
+    addNode(rc.line(noteX-6, noteY+i*22, noteX, noteY+i*22, { roughness:0.3, stroke:"#9aae9a", strokeWidth:0.8 }));
+    mkText(noteX+4, noteY+i*22+4, s, { size:12, fill:"#4a5e54", anchor:"start" });
+  });
 }
 
 function renderCostSummary(result) {
@@ -450,6 +559,88 @@ function renderCommercialBox(result) {
     <p><strong>Validez del presupuesto:</strong> ${result.commercial.quoteValidityDays} días</p>
     <p><strong>Observaciones técnicas:</strong> ${result.commercial.notes}</p>
   `;
+}
+
+const HISTORY_KEY = 'modularlive_history';
+const MAX_HISTORY = 5;
+
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveToHistory() {
+  if (!latestResult) return;
+  const history = getHistory();
+  const fd = formDataToObject(form);
+  const entry = {
+    id: Date.now(),
+    savedAt: new Date().toISOString(),
+    formData: fd,
+    meta: {
+      name: latestResult.input.projectName,
+      area: latestResult.totals.area,
+      items: latestResult.totals.items,
+      modules: latestResult.input.quantity,
+      system: latestResult.system.label
+    }
+  };
+  const filtered = history.filter(h => h.meta.name !== entry.meta.name);
+  filtered.unshift(entry);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(filtered.slice(0, MAX_HISTORY)));
+  renderHistory();
+  showToast(`"${entry.meta.name}" guardado en el historial`);
+}
+
+function deleteFromHistory(id) {
+  const history = getHistory().filter(h => h.id !== id);
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  renderHistory();
+}
+
+function renderHistory() {
+  const historyList = document.querySelector('#historyList');
+  const historyCount = document.querySelector('#historyCount');
+  if (!historyList || !historyCount) return;
+  const history = getHistory();
+  historyCount.textContent = history.length === 0 ? 'sin proyectos' : `${history.length} guardado${history.length !== 1 ? 's' : ''}`;
+  if (history.length === 0) {
+    historyList.innerHTML = '<p class="history-empty">No hay proyectos guardados todavía.</p>';
+    return;
+  }
+  historyList.innerHTML = history.map(h => {
+    const date = new Date(h.savedAt).toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+    return `<div class="history-card" data-id="${h.id}">
+      <div class="history-card__info">
+        <strong class="history-card__name">${escapeHtml(h.meta.name)}</strong>
+        <span class="history-card__meta">${h.meta.area} m² · ${h.meta.modules} mód. · ${escapeHtml(h.meta.system)}</span>
+        <span class="history-card__date">${date}</span>
+      </div>
+      <div class="history-card__actions">
+        <button type="button" class="btn-load-history btn-ghost btn-sm" data-id="${h.id}">Cargar</button>
+        <button type="button" class="btn-del-history btn-ghost btn-sm" data-id="${h.id}" title="Eliminar">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function buildShareUrl() {
+  const fd = formDataToObject(form);
+  const params = new URLSearchParams(fd);
+  return `${location.origin}${location.pathname}#${params.toString()}`;
+}
+
+function loadFromShareUrl() {
+  const hash = location.hash.slice(1);
+  if (!hash) return false;
+  try {
+    const params = Object.fromEntries(new URLSearchParams(hash));
+    if (params.projectName || params.width) {
+      fillForm(params);
+      return true;
+    }
+  } catch {}
+  return false;
 }
 
 function renderProject() {
@@ -585,6 +776,44 @@ form.addEventListener("submit", (event) => {
 
 presetButton.addEventListener("click", applyPreset);
 
+document.querySelector('#saveHistoryBtn').addEventListener('click', saveToHistory);
+document.querySelector('#historyList').addEventListener('click', (e) => {
+  const loadBtn = e.target.closest('.btn-load-history');
+  const delBtn = e.target.closest('.btn-del-history');
+  if (loadBtn) {
+    const id = Number(loadBtn.dataset.id);
+    const entry = getHistory().find(h => h.id === id);
+    if (entry) { fillForm(entry.formData); renderProject(); }
+  }
+  if (delBtn) {
+    deleteFromHistory(Number(delBtn.dataset.id));
+  }
+});
+
+document.querySelector('.results-panel').addEventListener('change', (e) => {
+  if (e.target.classList.contains('price-input')) {
+    const mat = e.target.dataset.material;
+    const val = parseFloat(e.target.value);
+    savePrice(mat, isNaN(val) ? 0 : val);
+    // re-render just the total cells
+    refreshPriceTotals();
+  }
+});
+
+document.querySelector('#copyLinkBtn').addEventListener('click', () => {
+  const url = buildShareUrl();
+  navigator.clipboard.writeText(url).then(() => showToast('Enlace copiado al portapapeles')).catch(() => {
+    prompt('Copiá este enlace:', url);
+  });
+});
+
+document.querySelector('#whatsappBtn').addEventListener('click', () => {
+  if (!latestResult) return;
+  const r = latestResult;
+  const text = `*${r.input.projectName}*\n${r.input.quantity} módulo(s) de ${r.input.length}×${r.input.width}×${r.input.height} m\nSuperficie: ${r.totals.area} m²  ·  ${r.totals.items} ítems\nMO: ${formatCurrency(r.costs.laborCostTotal)}\n\n_Calculado con ModularLive_\n${buildShareUrl()}`;
+  window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
+});
+
 csvButton.addEventListener("click", () => {
   if (!latestResult) {
     renderProject();
@@ -650,4 +879,10 @@ window.addEventListener("load", async () => {
   }
 });
 
-applyPreset();
+renderHistory();
+
+if (!loadFromShareUrl()) {
+  applyPreset();
+} else {
+  renderProject();
+}

@@ -841,3 +841,100 @@ input[type="number"]::-webkit-outer-spin-button {
 .summary-grid .summary-card:nth-child(4) { animation-delay: 120ms; }
 .summary-grid .summary-card:nth-child(5) { animation-delay: 160ms; }
 .summary-grid .summary-card:nth-child(6) { animation-delay: 200ms; }
+
+/* HISTORY PANEL */
+.history-actions {
+  margin-bottom: 12px;
+}
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.history-empty {
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-align: center;
+  padding: 12px 0;
+  margin: 0;
+}
+.history-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.6);
+  transition: background 140ms ease;
+}
+.history-card:hover {
+  background: rgba(255,255,255,0.9);
+}
+.history-card__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.history-card__name {
+  font-size: 0.92rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-card__meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.history-card__date {
+  font-size: 0.72rem;
+  color: var(--muted);
+  opacity: 0.7;
+}
+.history-card__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.btn-del-history {
+  padding: 6px 10px;
+  font-size: 0.78rem;
+}
+
+/* PRICE COLUMN */
+.price-input {
+  width: 110px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-strong);
+  font-size: 0.84rem;
+  color: var(--text);
+}
+.price-input:focus {
+  border-color: rgba(33, 64, 52, 0.4);
+  outline: none;
+}
+.price-total {
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.ml-link {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ffe600;
+  color: #333;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: opacity 150ms ease, transform 150ms ease;
+  white-space: nowrap;
+}
+.ml-link:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
