@@ -202,14 +202,21 @@ function unitLabel(unit) {
   return unit;
 }
 
+function purchaseQuantity(item) {
+  if (item.profileCount !== null && item.profileCount !== undefined) {
+    return { value: item.profileCount, label: `${item.profileCount} barras` };
+  }
+  return { value: parseFloat(item.quantity) || 0, label: `${item.quantity} ${item.unit}` };
+}
+
 function buildRowHtml(item) {
   const prices = getPrices();
   const mlCache = getMLCache();
   const manualPrice = Number(prices[item.material]) || 0;
   const cached = mlCache[item.material];
   const effectivePrice = manualPrice || (cached?.price ?? 0);
-  const qty = parseFloat(item.quantity) || 0;
-  const total = effectivePrice && qty ? formatCurrency(qty * effectivePrice) : "—";
+  const purchase = purchaseQuantity(item);
+  const total = effectivePrice && purchase.value ? formatCurrency(purchase.value * effectivePrice) : "—";
   const hasCached = !!cached;
   const hasPrice = effectivePrice > 0;
   const mlBtnText = hasCached
@@ -224,7 +231,7 @@ function buildRowHtml(item) {
       : "Buscar precio en MercadoLibre y cargarlo automáticamente";
   return `<tr>
     <td>${item.material}</td>
-    <td>${item.quantity} ${item.unit}</td>
+    <td data-qty="${purchase.value}">${purchase.label}</td>
     <td><input class="price-input" type="number" min="0" step="100" placeholder="0" value="${effectivePrice || ""}" data-material="${escapeHtml(item.material)}" /></td>
     <td class="price-total">${total}</td>
     <td><button type="button" class="ml-link" data-material="${escapeHtml(item.material)}" title="${mlBtnTitle}">${escapeHtml(mlBtnText)}</button></td>
@@ -248,8 +255,8 @@ function refreshPriceTotals() {
     if (!input || !totalCell) return;
     const mat = input.dataset.material;
     const price = Number(prices[mat]) || (mlCache[mat]?.price ?? 0);
-    const cells = row.querySelectorAll('td');
-    const qty = parseFloat(cells[1]?.textContent) || 0;
+    const qtyCell = row.querySelectorAll('td')[1];
+    const qty = parseFloat(qtyCell?.dataset.qty || qtyCell?.textContent) || 0;
     totalCell.textContent = price && qty ? formatCurrency(qty * price) : '—';
   });
 }
@@ -293,21 +300,26 @@ function buildPricedMaterials(result) {
   const mlCache = getMLCache();
   return consolidateMaterials(result).map((item) => {
     const unitPrice = Number(prices[item.material]) || (mlCache[item.material]?.price ?? 0);
-    const qty = parseFloat(item.quantity) || 0;
-    const total = unitPrice * qty;
-    return { ...item, unitPrice, total };
+    const purchase = purchaseQuantity(item);
+    const total = unitPrice * purchase.value;
+    return {
+      ...item,
+      purchaseQuantity: purchase.value,
+      purchaseLabel: purchase.label,
+      unitPrice,
+      total
+    };
   });
 }
 
 function buildMaterialsCsv(result) {
-  const rows = [["Material", "Unidad", "Cantidad", "Precio unitario", "Total"]];
+  const rows = [["Material", "Cantidad a comprar", "Precio unitario", "Total"]];
   let materialsSubtotal = 0;
   buildPricedMaterials(result).forEach((item) => {
     materialsSubtotal += item.total;
     rows.push([
       item.material,
-      item.unit,
-      String(item.quantity),
+      item.purchaseLabel,
       item.unitPrice > 0 ? String(item.unitPrice) : "",
       item.total > 0 ? String(Math.round(item.total)) : ""
     ]);
@@ -343,8 +355,7 @@ function buildReportHtml(result) {
       (item) => `
         <tr>
           <td>${escapeHtml(item.material)}</td>
-          <td class="num">${escapeHtml(item.unit)}</td>
-          <td class="num">${escapeHtml(item.quantity)}</td>
+          <td class="num">${escapeHtml(item.purchaseLabel)}</td>
           <td class="num">${item.unitPrice > 0 ? escapeHtml(formatCurrency(item.unitPrice)) : "—"}</td>
           <td class="num">${item.total > 0 ? escapeHtml(formatCurrency(item.total)) : "—"}</td>
         </tr>
@@ -378,13 +389,13 @@ function buildReportHtml(result) {
 
     <table>
       <thead>
-        <tr><th>Material</th><th>Unidad</th><th>Cantidad</th><th>Precio unit.</th><th>Total</th></tr>
+        <tr><th>Material</th><th>Cantidad a comprar</th><th>Precio unit.</th><th>Total</th></tr>
       </thead>
       <tbody>
         ${rows}
-        <tr class="subtotal"><td colspan="4">Subtotal materiales</td><td class="num">${escapeHtml(formatCurrency(materialsSubtotal))}</td></tr>
-        <tr class="labor"><td>Mano de obra</td><td class="num">m²</td><td class="num">${result.totals.area}</td><td class="num">${escapeHtml(formatCurrency(result.costs.laborRate))}</td><td class="num">${escapeHtml(formatCurrency(result.costs.laborCostTotal))}</td></tr>
-        <tr class="total"><td colspan="4">TOTAL</td><td class="num">${escapeHtml(formatCurrency(totalGeneral))}</td></tr>
+        <tr class="subtotal"><td colspan="3">Subtotal materiales</td><td class="num">${escapeHtml(formatCurrency(materialsSubtotal))}</td></tr>
+        <tr class="labor"><td>Mano de obra</td><td class="num">${result.totals.area} m²</td><td class="num">${escapeHtml(formatCurrency(result.costs.laborRate))}</td><td class="num">${escapeHtml(formatCurrency(result.costs.laborCostTotal))}</td></tr>
+        <tr class="total"><td colspan="3">TOTAL</td><td class="num">${escapeHtml(formatCurrency(totalGeneral))}</td></tr>
       </tbody>
     </table>
   </div>
@@ -1070,8 +1081,7 @@ jsonButton.addEventListener("click", () => {
     totalArea: latestResult.totals.area,
     materials: priced.map((it) => ({
       material: it.material,
-      unit: it.unit,
-      quantity: it.quantity,
+      purchaseQuantity: it.purchaseLabel,
       unitPrice: it.unitPrice,
       total: it.total
     })),
