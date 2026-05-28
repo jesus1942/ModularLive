@@ -14,7 +14,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
@@ -418,7 +418,30 @@
               <button type="button" id="printButton" class="btn-ghost btn-sm">
                 Imprimir
               </button>
+              <div class="actions-sep" aria-hidden="true"></div>
+              <button type="button" id="copyLinkBtn" class="btn-ghost btn-sm">Copiar enlace</button>
+              <button type="button" id="whatsappBtn" class="btn-ghost btn-sm">WhatsApp</button>
             </div>
+
+            <details class="form-section" id="historySection">
+              <summary class="form-section__trigger">
+                <h3>Historial de proyectos</h3>
+                <span class="form-section__meta">
+                  <span class="form-section__count" id="historyCount">sin proyectos</span>
+                  <svg class="form-section__chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M5 7.5L10 12.5L15 7.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </span>
+              </summary>
+              <div class="form-section__body">
+                <div class="history-actions">
+                  <button type="button" id="saveHistoryBtn" class="btn-ghost btn-sm">Guardar proyecto actual</button>
+                </div>
+                <div class="history-list" id="historyList">
+                  <p class="history-empty">No hay proyectos guardados todavía.</p>
+                </div>
+              </div>
+            </details>
           </form>
         </section>
 
@@ -474,13 +497,8 @@
             <table>
               <thead>
                 <tr>
-                  <th>Tipo</th>
-                  <th>Rubro base</th>
-                  <th>Material</th>
-                  <th>Unidad</th>
-                  <th>Total</th>
-                  <th>Perfiles</th>
-                  <th>Detalle</th>
+                  <th>Tipo</th><th>Rubro base</th><th>Material</th><th>Unid.</th>
+                  <th>Cant.</th><th>Barras</th><th>Precio unit.</th><th>Total</th><th></th>
                 </tr>
               </thead>
               <tbody id="consolidatedTableBody"></tbody>
@@ -501,13 +519,8 @@
             <table>
               <thead>
                 <tr>
-                  <th>Tipo</th>
-                  <th>Rubro</th>
-                  <th>Material</th>
-                  <th>Unidad</th>
-                  <th>Cantidad</th>
-                  <th>Perfiles</th>
-                  <th>Detalle</th>
+                  <th>Tipo</th><th>Rubro</th><th>Material</th><th>Unid.</th>
+                  <th>Cant.</th><th>Barras</th><th>Precio unit.</th><th>Total</th><th></th>
                 </tr>
               </thead>
               <tbody id="materialsTableBody"></tbody>
@@ -527,6 +540,7 @@
 
     <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
+    <script src="https://cdn.jsdelivr.net/npm/roughjs@4.6.6/bundled/rough.min.js"></script>
     <script type="module" src="app.js"></script>
   </body>
 </html>
