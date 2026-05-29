@@ -219,7 +219,7 @@ function applyWaste(value, wasteRate) {
   return value * (1 + wasteRate);
 }
 
-function createItem(scope, category, material, unit, quantity, detail, stockLength = 6) {
+function createItem(scope, category, material, unit, quantity, detail, stockLength = 6, packSize = null, packUnit = null) {
   const normalizedQuantity = unit === "u" ? Math.ceil(quantity) : ceil(quantity, 2);
   return {
     scope,
@@ -228,6 +228,9 @@ function createItem(scope, category, material, unit, quantity, detail, stockLeng
     unit,
     quantity: normalizedQuantity,
     profileCount: unit === "m" ? Math.ceil(normalizedQuantity / stockLength) : null,
+    packCount: packSize !== null ? Math.ceil(normalizedQuantity / packSize) : null,
+    packSize,
+    packUnit,
     detail
   };
 }
@@ -478,7 +481,8 @@ export function calculateProject(rawInput) {
       system.windBarrier,
       "m²",
       wastedWallArea,
-      "Aplicación sobre caras exteriores"
+      "Aplicación sobre caras exteriores",
+      6, 30, "rollos"
     ),
     createItem(
       "Estimación complementaria",
@@ -560,7 +564,8 @@ export function calculateProject(rawInput) {
       system.fastener,
       "u",
       (wastedFloorArea + wastedWallArea + wastedRoofArea) * 22,
-      "Estimación global de fijaciones"
+      "Estimación global de fijaciones",
+      6, 100, "bolsas"
     ),
     createItem(
       "Estimación complementaria",
@@ -736,6 +741,8 @@ export function consolidateMaterials(result) {
       unit: item.unit,
       quantity: 0,
       profileCount: 0,
+      packSize: item.packSize,
+      packUnit: item.packUnit,
       detailParts: []
     };
 
@@ -750,15 +757,21 @@ export function consolidateMaterials(result) {
     grouped.set(key, current);
   });
 
-  return [...grouped.values()].map((item) => ({
-    scope: item.scope,
-    category: item.categories.join(" + "),
-    material: item.material,
-    unit: item.unit,
-    quantity: item.unit === "u" ? Math.ceil(item.quantity) : ceil(item.quantity, 2),
-    profileCount: item.profileCount > 0 ? Math.ceil(item.profileCount) : null,
-    detail: item.detailParts.join(" | ")
-  }));
+  return [...grouped.values()].map((item) => {
+    const qty = item.unit === "u" ? Math.ceil(item.quantity) : ceil(item.quantity, 2);
+    return {
+      scope: item.scope,
+      category: item.categories.join(" + "),
+      material: item.material,
+      unit: item.unit,
+      quantity: qty,
+      profileCount: item.profileCount > 0 ? Math.ceil(item.profileCount) : null,
+      packCount: item.packSize !== null ? Math.ceil(qty / item.packSize) : null,
+      packSize: item.packSize,
+      packUnit: item.packUnit,
+      detail: item.detailParts.join(" | ")
+    };
+  });
 }
 
 function rowsToCsv(rows, header) {

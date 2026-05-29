@@ -206,6 +206,9 @@ function purchaseQuantity(item) {
   if (item.profileCount !== null && item.profileCount !== undefined) {
     return { value: item.profileCount, label: `${item.profileCount} barras` };
   }
+  if (item.packCount !== null && item.packCount !== undefined) {
+    return { value: item.packCount, label: `${item.packCount} ${item.packUnit || "paquetes"}` };
+  }
   return { value: parseFloat(item.quantity) || 0, label: `${item.quantity} ${item.unit}` };
 }
 
