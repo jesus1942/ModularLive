@@ -1,14 +1,14 @@
 const STRUCTURE_SYSTEMS = {
   steel_tube: {
-    label: "Estructura metálica",
-    frameMaterial: "Perfil estructural de acero al carbono",
-    mainFrameOptions: ["100x100x3.2", "80x80x3.2"],
-    defaultMainFrameSection: "100x100x3.2",
-    floorJoist: "Tubo rectangular acero al carbono 100×50×3.2 mm",
-    perimeterBeam: "Tubo rectangular acero al carbono 100×50×3.2 mm",
-    wallStud: "Tubo rectangular acero al carbono 100×50×2 mm",
-    roofRafter: "Tubo rectangular acero al carbono 100×50×3.2 mm",
-    openingFrame: "Perfil C/U acero al carbono 100×50×2 mm",
+    label: "Perfil C estructural",
+    frameMaterial: "Perfil C doble soldado boca a boca",
+    mainFrameOptions: ["150x50x3.2", "120x50x3.2"],
+    defaultMainFrameSection: "150x50x3.2",
+    floorJoist: "Perfil C 150×50×3.2 mm",
+    perimeterBeam: "Perfil C 150×50×3.2 mm",
+    wallStud: "Perfil C 100×50×2 mm",
+    roofRafter: "Perfil C 150×50×3.2 mm",
+    openingFrame: "Perfil C 100×50×2 mm",
     structuralPanel: "Placa OSB estructural 11 mm",
     floorInsulation: "Lana de roca alta densidad 100 mm",
     wallInsulation: "Lana de roca 100 mm",
@@ -18,8 +18,11 @@ const STRUCTURE_SYSTEMS = {
     fastener: 'Tornillo autoperforante cab. hex. 3/8" × 1 1/2"',
     anchor: "Tornillo M10 con tarugo plástico expansivo",
     sealant: "Espuma de poliuretano expansiva + sellador MS",
+    wallPlateMult: 0,
+    cornerStuds: 0,
+    openingStudsEach: 2,
     notes:
-      "Bastidor principal y estructura secundaria resueltos con perfiles estructurales de acero al carbono."
+      "Bastidor del cubo con doble Perfil C soldado boca a boca. Piso, techo y paredes con Perfil C simple."
   },
   light_steel: {
     label: "Steel frame liviano",
@@ -40,6 +43,9 @@ const STRUCTURE_SYSTEMS = {
     fastener: 'Tornillo punta mecha 3/8" × 1" autoperforante',
     anchor: "Tornillo M8 galvanizado con tarugo plástico",
     sealant: "Cinta selladora + sellador MS para encuentros",
+    wallPlateMult: 3,
+    cornerStuds: 4,
+    openingStudsEach: 4,
     notes:
       "Sistema liviano en perfiles conformados en frío, orientado a obra seca y panelización seriada."
   },
@@ -62,6 +68,9 @@ const STRUCTURE_SYSTEMS = {
     fastener: 'Tornillo para madera 4" cabeza plana + clavo tachuela 2 1/2"',
     anchor: "Escuadra galvanizada + tornillo M10 con tarugo",
     sealant: "Espuma poliuretano expansiva + sellador elástico",
+    wallPlateMult: 3,
+    cornerStuds: 4,
+    openingStudsEach: 4,
     notes:
       "Sistema de entramado liviano en madera tratada, con buen desempeño térmico y fabricación simple."
   }
@@ -72,7 +81,7 @@ const PRESETS = {
     calculationMode: "mixed",
     interiorUseType: "dry",
     structureType: "steel_tube",
-    mainFrameSection: "100x100x3.2",
+    mainFrameSection: "150x50x3.2",
     wallExteriorCladding: "corrugated_sheet",
     wallInteriorLining: "drywall",
     roofCladding: "corrugated_sheet",
@@ -83,7 +92,7 @@ const PRESETS = {
     height: 2.6,
     quantity: 1,
     floorSpacing: 0.4,
-    wallSpacing: 0.4,
+    wallSpacing: 0.6,
     roofSpacing: 0.4,
     roofOverhang: 0.25,
     panelArea: 2.98,
@@ -99,7 +108,7 @@ const PRESETS = {
     calculationMode: "mixed",
     interiorUseType: "dry",
     structureType: "steel_tube",
-    mainFrameSection: "100x100x3.2",
+    mainFrameSection: "150x50x3.2",
     wallExteriorCladding: "corrugated_sheet",
     wallInteriorLining: "drywall",
     roofCladding: "trapezoidal_sheet",
@@ -110,7 +119,7 @@ const PRESETS = {
     height: 2.7,
     quantity: 1,
     floorSpacing: 0.4,
-    wallSpacing: 0.4,
+    wallSpacing: 0.6,
     roofSpacing: 0.4,
     roofOverhang: 0.2,
     panelArea: 2.98,
@@ -219,7 +228,7 @@ function applyWaste(value, wasteRate) {
   return value * (1 + wasteRate);
 }
 
-function createItem(scope, category, material, unit, quantity, detail, stockLength = 6) {
+function createItem(scope, category, material, unit, quantity, detail, stockLength = 6, packSize = null, packUnit = null, barMultiplier = 1) {
   const normalizedQuantity = unit === "u" ? Math.ceil(quantity) : ceil(quantity, 2);
   return {
     scope,
@@ -227,7 +236,10 @@ function createItem(scope, category, material, unit, quantity, detail, stockLeng
     material,
     unit,
     quantity: normalizedQuantity,
-    profileCount: unit === "m" ? Math.ceil(normalizedQuantity / stockLength) : null,
+    profileCount: unit === "m" ? Math.ceil(normalizedQuantity * barMultiplier / stockLength) : null,
+    packCount: packSize !== null ? Math.ceil(normalizedQuantity / packSize) : null,
+    packSize,
+    packUnit,
     detail
   };
 }
@@ -334,9 +346,9 @@ export function calculateProject(rawInput) {
   const wallStudsLengthWall = Math.ceil(input.length / input.wallSpacing) + 1;
   const baseWallStudsPerModule =
     wallStudsWidthWall * 2 + wallStudsLengthWall * 2;
-  const cornerReinforcementStuds = 8;
+  const cornerReinforcementStuds = system.cornerStuds ?? 4;
   const openingSideStuds =
-    input.windowCount * 4 + input.doorCount * 4;
+    (input.windowCount + input.doorCount) * (system.openingStudsEach ?? 4);
   const wallStudsPerModule =
     baseWallStudsPerModule + cornerReinforcementStuds + openingSideStuds;
   const roofRaftersPerModule = Math.ceil(roofLength / input.roofSpacing) + 1;
@@ -358,7 +370,7 @@ export function calculateProject(rawInput) {
   const mainCubeFrameLength =
     cornerPostsLength + upperCubeFrameLength + lowerCubeFrameLength;
   const mainFrameLabel = input.structureType === "steel_tube"
-    ? `Tubo estructural AC ${mainFrameSection} mm`
+    ? `Perfil C doble ${mainFrameSection} mm`
     : mainFrameSection;
 
   const qty = input.quantity;
@@ -376,8 +388,8 @@ export function calculateProject(rawInput) {
       mainFrameLabel,
       "m",
       applyWaste(mainCubeFrameLength * qty, input.wasteFactor),
-      `${cornerPostsPerModule} columnas + marco superior e inferior del cubo`,
-      input.stockLength
+      `${cornerPostsPerModule} columnas + marco sup/inf — 2 perfiles por metro (boca a boca)`,
+      input.stockLength, null, null, 2
     ),
     createItem(
       "Despiece estructural",
@@ -421,14 +433,16 @@ export function calculateProject(rawInput) {
       modulePerimeter * qty / 1.2,
       "Un anclaje cada 1,2 m lineales"
     ),
-    createItem(
-      "Despiece estructural",
-      "Paredes",
-      system.wallStud,
-      "m",
-      applyWaste(modulePerimeter * 3 * qty, input.wasteFactor),
-      "Solera inferior y doble solera superior",
-      input.stockLength
+    ...(
+      (system.wallPlateMult ?? 3) > 0
+        ? [createItem(
+            "Despiece estructural", "Paredes",
+            system.wallStud, "m",
+            applyWaste(modulePerimeter * (system.wallPlateMult ?? 3) * qty, input.wasteFactor),
+            "Solera inferior y doble solera superior",
+            input.stockLength
+          )]
+        : []
     ),
     createItem(
       "Despiece estructural",
@@ -436,7 +450,7 @@ export function calculateProject(rawInput) {
       system.wallStud,
       "m",
       applyWaste(wallStudsPerModule * input.height * qty, input.wasteFactor),
-      `${wallStudsPerModule} montantes por módulo incluyendo esquinas y laterales de aberturas`,
+      `${wallStudsPerModule} montantes por módulo incluyendo laterales de aberturas`,
       input.stockLength
     ),
     createItem(
@@ -478,7 +492,8 @@ export function calculateProject(rawInput) {
       system.windBarrier,
       "m²",
       wastedWallArea,
-      "Aplicación sobre caras exteriores"
+      "Aplicación sobre caras exteriores",
+      6, 30, "rollos"
     ),
     createItem(
       "Estimación complementaria",
@@ -560,7 +575,8 @@ export function calculateProject(rawInput) {
       system.fastener,
       "u",
       (wastedFloorArea + wastedWallArea + wastedRoofArea) * 22,
-      "Estimación global de fijaciones"
+      "Estimación global de fijaciones",
+      6, 100, "bolsas"
     ),
     createItem(
       "Estimación complementaria",
@@ -616,7 +632,8 @@ export function calculateProject(rawInput) {
     input,
     system: {
       ...system,
-      mainFrameSection
+      mainFrameSection,
+      mainFrameLabel
     },
     cladding: {
       wallExteriorCladding,
@@ -736,6 +753,8 @@ export function consolidateMaterials(result) {
       unit: item.unit,
       quantity: 0,
       profileCount: 0,
+      packSize: item.packSize,
+      packUnit: item.packUnit,
       detailParts: []
     };
 
@@ -750,15 +769,21 @@ export function consolidateMaterials(result) {
     grouped.set(key, current);
   });
 
-  return [...grouped.values()].map((item) => ({
-    scope: item.scope,
-    category: item.categories.join(" + "),
-    material: item.material,
-    unit: item.unit,
-    quantity: item.unit === "u" ? Math.ceil(item.quantity) : ceil(item.quantity, 2),
-    profileCount: item.profileCount > 0 ? Math.ceil(item.profileCount) : null,
-    detail: item.detailParts.join(" | ")
-  }));
+  return [...grouped.values()].map((item) => {
+    const qty = item.unit === "u" ? Math.ceil(item.quantity) : ceil(item.quantity, 2);
+    return {
+      scope: item.scope,
+      category: item.categories.join(" + "),
+      material: item.material,
+      unit: item.unit,
+      quantity: qty,
+      profileCount: item.profileCount > 0 ? Math.ceil(item.profileCount) : null,
+      packCount: item.packSize !== null ? Math.ceil(qty / item.packSize) : null,
+      packSize: item.packSize,
+      packUnit: item.packUnit,
+      detail: item.detailParts.join(" | ")
+    };
+  });
 }
 
 function rowsToCsv(rows, header) {
