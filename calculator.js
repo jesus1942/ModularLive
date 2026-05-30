@@ -6,7 +6,7 @@ const STRUCTURE_SYSTEMS = {
     defaultMainFrameSection: "100x100x3.2",
     floorJoist: "Tubo rectangular acero al carbono 100×50×3.2 mm",
     perimeterBeam: "Tubo rectangular acero al carbono 100×50×3.2 mm",
-    wallStud: "Tubo rectangular acero al carbono 100×50×2 mm",
+    wallStud: "Tubo rectangular acero al carbono 40×40×2 mm",
     roofRafter: "Tubo rectangular acero al carbono 100×50×3.2 mm",
     openingFrame: "Perfil C/U acero al carbono 100×50×2 mm",
     structuralPanel: "Placa OSB estructural 11 mm",
@@ -18,6 +18,9 @@ const STRUCTURE_SYSTEMS = {
     fastener: 'Tornillo autoperforante cab. hex. 3/8" × 1 1/2"',
     anchor: "Tornillo M10 con tarugo plástico expansivo",
     sealant: "Espuma de poliuretano expansiva + sellador MS",
+    wallPlateMult: 0,
+    cornerStuds: 0,
+    openingStudsEach: 2,
     notes:
       "Bastidor principal y estructura secundaria resueltos con perfiles estructurales de acero al carbono."
   },
@@ -40,6 +43,9 @@ const STRUCTURE_SYSTEMS = {
     fastener: 'Tornillo punta mecha 3/8" × 1" autoperforante',
     anchor: "Tornillo M8 galvanizado con tarugo plástico",
     sealant: "Cinta selladora + sellador MS para encuentros",
+    wallPlateMult: 3,
+    cornerStuds: 4,
+    openingStudsEach: 4,
     notes:
       "Sistema liviano en perfiles conformados en frío, orientado a obra seca y panelización seriada."
   },
@@ -62,6 +68,9 @@ const STRUCTURE_SYSTEMS = {
     fastener: 'Tornillo para madera 4" cabeza plana + clavo tachuela 2 1/2"',
     anchor: "Escuadra galvanizada + tornillo M10 con tarugo",
     sealant: "Espuma poliuretano expansiva + sellador elástico",
+    wallPlateMult: 3,
+    cornerStuds: 4,
+    openingStudsEach: 4,
     notes:
       "Sistema de entramado liviano en madera tratada, con buen desempeño térmico y fabricación simple."
   }
@@ -83,7 +92,7 @@ const PRESETS = {
     height: 2.6,
     quantity: 1,
     floorSpacing: 0.4,
-    wallSpacing: 0.4,
+    wallSpacing: 0.6,
     roofSpacing: 0.4,
     roofOverhang: 0.25,
     panelArea: 2.98,
@@ -110,7 +119,7 @@ const PRESETS = {
     height: 2.7,
     quantity: 1,
     floorSpacing: 0.4,
-    wallSpacing: 0.4,
+    wallSpacing: 0.6,
     roofSpacing: 0.4,
     roofOverhang: 0.2,
     panelArea: 2.98,
@@ -337,9 +346,9 @@ export function calculateProject(rawInput) {
   const wallStudsLengthWall = Math.ceil(input.length / input.wallSpacing) + 1;
   const baseWallStudsPerModule =
     wallStudsWidthWall * 2 + wallStudsLengthWall * 2;
-  const cornerReinforcementStuds = 8;
+  const cornerReinforcementStuds = system.cornerStuds ?? 4;
   const openingSideStuds =
-    input.windowCount * 4 + input.doorCount * 4;
+    (input.windowCount + input.doorCount) * (system.openingStudsEach ?? 4);
   const wallStudsPerModule =
     baseWallStudsPerModule + cornerReinforcementStuds + openingSideStuds;
   const roofRaftersPerModule = Math.ceil(roofLength / input.roofSpacing) + 1;
@@ -424,14 +433,16 @@ export function calculateProject(rawInput) {
       modulePerimeter * qty / 1.2,
       "Un anclaje cada 1,2 m lineales"
     ),
-    createItem(
-      "Despiece estructural",
-      "Paredes",
-      system.wallStud,
-      "m",
-      applyWaste(modulePerimeter * 3 * qty, input.wasteFactor),
-      "Solera inferior y doble solera superior",
-      input.stockLength
+    ...(
+      (system.wallPlateMult ?? 3) > 0
+        ? [createItem(
+            "Despiece estructural", "Paredes",
+            system.wallStud, "m",
+            applyWaste(modulePerimeter * (system.wallPlateMult ?? 3) * qty, input.wasteFactor),
+            "Solera inferior y doble solera superior",
+            input.stockLength
+          )]
+        : []
     ),
     createItem(
       "Despiece estructural",
@@ -439,7 +450,7 @@ export function calculateProject(rawInput) {
       system.wallStud,
       "m",
       applyWaste(wallStudsPerModule * input.height * qty, input.wasteFactor),
-      `${wallStudsPerModule} montantes por módulo incluyendo esquinas y laterales de aberturas`,
+      `${wallStudsPerModule} montantes por módulo incluyendo laterales de aberturas`,
       input.stockLength
     ),
     createItem(
