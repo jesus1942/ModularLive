@@ -1,19 +1,35 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="120" fill="#214034" />
-  <rect x="94" y="204" width="324" height="180" rx="24" fill="#F6F1E4" />
-  <path
-    d="M70 228 256 98l186 130"
-    fill="none"
-    stroke="#D67D44"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-width="34"
-  />
-  <rect x="216" y="268" width="80" height="116" rx="12" fill="#214034" />
-  <path
-    d="M142 270h44M142 318h44M326 270h44M326 318h44"
-    stroke="#214034"
-    stroke-linecap="round"
-    stroke-width="18"
-  />
+  <rect width="512" height="512" rx="0" fill="#1e3229"/>
+
+  <!-- top face -->
+  <polygon points="123,204 256,132 390,204 256,276" fill="#b06828"/>
+  <!-- left face -->
+  <polygon points="123,204 256,276 256,384 123,312" fill="#ece4d2"/>
+  <!-- right face -->
+  <polygon points="256,276 390,204 390,312 256,384" fill="#cec5b2"/>
+
+  <!-- top face edges -->
+  <path d="M123,204 C174,186 213,157 256,132"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+  <path d="M256,132 C300,157 339,186 390,204"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+  <path d="M123,204 C174,231 213,258 256,276"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+  <path d="M390,204 C339,231 300,258 256,276"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- vertical edges -->
+  <path d="M123,204 C121,240 124,276 123,312"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+  <path d="M256,276 C256,312 256,348 256,384"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+  <path d="M390,204 C392,240 389,276 390,312"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- bottom edges -->
+  <path d="M123,312 C174,330 213,357 256,384"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+  <path d="M390,312 C339,330 300,357 256,384"        fill="none" stroke="#1e3229" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- window — left face -->
+  <rect x="141" y="244" width="68" height="54" rx="5"
+        fill="#8ec4d8" opacity="0.6" stroke="#1e3229" stroke-width="5" stroke-linejoin="round"/>
+  <line x1="175" y1="244" x2="175" y2="298" stroke="#1e3229" stroke-width="4" stroke-linecap="round"/>
+  <line x1="141" y1="271" x2="209" y2="271" stroke="#1e3229" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- door — right face -->
+  <rect x="292" y="282" width="50" height="102" rx="5"
+        fill="#c4a870" opacity="0.6" stroke="#1e3229" stroke-width="5" stroke-linejoin="round"/>
 </svg>

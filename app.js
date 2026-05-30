@@ -711,7 +711,7 @@ function renderTechnicalSketch(result) {
   // spec notes on right
   const noteX = iox + iDx + iWx + 18, noteY = ioy - iH + 10;
   const specs = [
-    `Bastidor: ${result.system.mainFrameSection}`,
+    `Bastidor: ${result.system.mainFrameLabel || result.system.mainFrameSection}`,
     `Vigueta: ${result.system.floorJoist.split(" ").slice(0,3).join(" ")}`,
     `Ext: ${result.cladding.wallExteriorCladding.label}`,
     `Cubierta: ${result.cladding.roofCladding.label.split(" ").slice(0,3).join(" ")}`
@@ -849,13 +849,13 @@ function renderProject() {
   const { input, totals, derived } = latestResult;
   summaryText.textContent =
     `${input.projectName}: ${totals.area} m² totales en ${input.quantity} módulo(s), ` +
-    `bastidor principal de ${latestResult.system.mainFrameSection}, ` +
+    `bastidor principal de ${latestResult.system.mainFrameLabel || latestResult.system.mainFrameSection}, ` +
     `${derived.floorJoistsPerModule} viguetas de piso de ${derived.floorJoistSpan} m de luz, ` +
     `${derived.wallStudsPerModule} montantes por módulo y ${derived.roofRaftersPerModule} cabios de ${derived.roofRafterSpan} m.`;
   systemNote.textContent =
     `Sistema definido: ${latestResult.system.label}. ` +
     `Material base: ${latestResult.system.frameMaterial}. ` +
-    `Bastidor principal del cubo: ${latestResult.system.mainFrameSection}. ` +
+    `Bastidor principal del cubo: ${latestResult.system.mainFrameLabel || latestResult.system.mainFrameSection}. ` +
     `Exterior: ${latestResult.cladding.wallExteriorCladding.label}. ` +
     `Interior: ${latestResult.cladding.wallInteriorLining.label}. ` +
     `Cubierta: ${latestResult.cladding.roofCladding.label}. ` +

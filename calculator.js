@@ -1,14 +1,14 @@
 const STRUCTURE_SYSTEMS = {
   steel_tube: {
-    label: "Estructura metálica",
-    frameMaterial: "Perfil estructural de acero al carbono",
-    mainFrameOptions: ["100x100x3.2", "80x80x3.2"],
-    defaultMainFrameSection: "100x100x3.2",
-    floorJoist: "Tubo rectangular acero al carbono 100×50×3.2 mm",
-    perimeterBeam: "Tubo rectangular acero al carbono 100×50×3.2 mm",
-    wallStud: "Tubo rectangular acero al carbono 40×40×2 mm",
-    roofRafter: "Tubo rectangular acero al carbono 100×50×3.2 mm",
-    openingFrame: "Perfil C/U acero al carbono 100×50×2 mm",
+    label: "Perfil C estructural",
+    frameMaterial: "Perfil C doble soldado boca a boca",
+    mainFrameOptions: ["150x50x3.2", "120x50x3.2"],
+    defaultMainFrameSection: "150x50x3.2",
+    floorJoist: "Perfil C 150×50×3.2 mm",
+    perimeterBeam: "Perfil C 150×50×3.2 mm",
+    wallStud: "Perfil C 100×50×2 mm",
+    roofRafter: "Perfil C 150×50×3.2 mm",
+    openingFrame: "Perfil C 100×50×2 mm",
     structuralPanel: "Placa OSB estructural 11 mm",
     floorInsulation: "Lana de roca alta densidad 100 mm",
     wallInsulation: "Lana de roca 100 mm",
@@ -22,7 +22,7 @@ const STRUCTURE_SYSTEMS = {
     cornerStuds: 0,
     openingStudsEach: 2,
     notes:
-      "Bastidor principal y estructura secundaria resueltos con perfiles estructurales de acero al carbono."
+      "Bastidor del cubo con doble Perfil C soldado boca a boca. Piso, techo y paredes con Perfil C simple."
   },
   light_steel: {
     label: "Steel frame liviano",
@@ -81,7 +81,7 @@ const PRESETS = {
     calculationMode: "mixed",
     interiorUseType: "dry",
     structureType: "steel_tube",
-    mainFrameSection: "100x100x3.2",
+    mainFrameSection: "150x50x3.2",
     wallExteriorCladding: "corrugated_sheet",
     wallInteriorLining: "drywall",
     roofCladding: "corrugated_sheet",
@@ -108,7 +108,7 @@ const PRESETS = {
     calculationMode: "mixed",
     interiorUseType: "dry",
     structureType: "steel_tube",
-    mainFrameSection: "100x100x3.2",
+    mainFrameSection: "150x50x3.2",
     wallExteriorCladding: "corrugated_sheet",
     wallInteriorLining: "drywall",
     roofCladding: "trapezoidal_sheet",
@@ -228,7 +228,7 @@ function applyWaste(value, wasteRate) {
   return value * (1 + wasteRate);
 }
 
-function createItem(scope, category, material, unit, quantity, detail, stockLength = 6, packSize = null, packUnit = null) {
+function createItem(scope, category, material, unit, quantity, detail, stockLength = 6, packSize = null, packUnit = null, barMultiplier = 1) {
   const normalizedQuantity = unit === "u" ? Math.ceil(quantity) : ceil(quantity, 2);
   return {
     scope,
@@ -236,7 +236,7 @@ function createItem(scope, category, material, unit, quantity, detail, stockLeng
     material,
     unit,
     quantity: normalizedQuantity,
-    profileCount: unit === "m" ? Math.ceil(normalizedQuantity / stockLength) : null,
+    profileCount: unit === "m" ? Math.ceil(normalizedQuantity * barMultiplier / stockLength) : null,
     packCount: packSize !== null ? Math.ceil(normalizedQuantity / packSize) : null,
     packSize,
     packUnit,
@@ -370,7 +370,7 @@ export function calculateProject(rawInput) {
   const mainCubeFrameLength =
     cornerPostsLength + upperCubeFrameLength + lowerCubeFrameLength;
   const mainFrameLabel = input.structureType === "steel_tube"
-    ? `Tubo estructural AC ${mainFrameSection} mm`
+    ? `Perfil C doble ${mainFrameSection} mm`
     : mainFrameSection;
 
   const qty = input.quantity;
@@ -388,8 +388,8 @@ export function calculateProject(rawInput) {
       mainFrameLabel,
       "m",
       applyWaste(mainCubeFrameLength * qty, input.wasteFactor),
-      `${cornerPostsPerModule} columnas + marco superior e inferior del cubo`,
-      input.stockLength
+      `${cornerPostsPerModule} columnas + marco sup/inf — 2 perfiles por metro (boca a boca)`,
+      input.stockLength, null, null, 2
     ),
     createItem(
       "Despiece estructural",
@@ -632,7 +632,8 @@ export function calculateProject(rawInput) {
     input,
     system: {
       ...system,
-      mainFrameSection
+      mainFrameSection,
+      mainFrameLabel
     },
     cladding: {
       wallExteriorCladding,
