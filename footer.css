@@ -1,81 +1,140 @@
-/* Footer brutalista compartido por la calculadora y el diseñador */
+/* Footer brutalista en blanco y negro, con lunares y geometría (inspirado en Angine de Poitrine) */
 .bf {
-  --bf-ink: #0d0d0d;
-  --bf-paper: #f3f1e8;
-  --bf-hit: #d67d44;
+  --ink: #000;
+  --paper: #fff;
   margin-top: 48px;
-  background: var(--bf-ink);
-  color: var(--bf-paper);
-  border-top: 10px solid var(--bf-hit);
+  background: var(--ink);
+  color: var(--paper);
   font-family: "Space Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  overflow: hidden;
+  border-bottom: 10px solid var(--ink);
+}
+
+/* franja de lunares alternados */
+.bf__dots {
+  height: 64px;
+  background-color: var(--paper);
+  background-image:
+    radial-gradient(circle, var(--ink) 0 9px, transparent 9.5px),
+    radial-gradient(circle, var(--ink) 0 9px, transparent 9.5px);
+  background-size: 32px 32px;
+  background-position: 0 0, 16px 16px;
+  border-bottom: 6px solid var(--paper);
 }
 
 .bf__top {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
+  align-items: center;
   gap: 24px;
-  padding: 28px 24px 20px;
-  border-bottom: 3px solid var(--bf-paper);
+  padding: 32px 24px 28px;
 }
 
 .bf__word {
   margin: 0;
   font-family: "Archivo Black", "Arial Black", Impact, sans-serif;
   font-weight: 900;
-  font-size: clamp(2.6rem, 10.5vw, 9.5rem);
-  line-height: 0.82;
+  font-size: clamp(2.8rem, 11vw, 10rem);
+  line-height: 0.84;
   letter-spacing: -0.045em;
   text-transform: uppercase;
   overflow-wrap: anywhere;
 }
 
+/* "MODULAR" relleno de lunares y contorneado */
 .bf__word span {
   display: block;
-  color: var(--bf-hit);
+  color: transparent;
+  -webkit-text-stroke: 2px var(--paper);
+  background-image:
+    radial-gradient(circle, var(--paper) 0 30%, transparent 32%),
+    radial-gradient(circle, var(--paper) 0 30%, transparent 32%);
+  background-size: 0.16em 0.16em;
+  background-position: 0 0, 0.08em 0.08em;
+  -webkit-background-clip: text;
+  background-clip: text;
 }
 
-.bf__logo {
+.bf__figure {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* triángulo con lunares negros */
+.bf__tri {
+  width: clamp(54px, 7vw, 96px);
+  aspect-ratio: 1 / 1.15;
+  background-color: var(--paper);
+  background-image: radial-gradient(circle, var(--ink) 0 4px, transparent 4.5px);
+  background-size: 14px 14px;
+  clip-path: polygon(0 0, 100% 50%, 0 100%);
+}
+
+/* el logo vive dentro de un gran lunar blanco */
+.bf__disc {
+  display: grid;
+  place-items: center;
+  width: clamp(140px, 17vw, 220px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--paper);
+  outline: 6px solid var(--paper);
+  outline-offset: 6px;
+}
+
+.bf__disc img {
   display: block;
-  width: clamp(96px, 14vw, 170px);
+  width: 74%;
   height: auto;
-  padding: 10px;
-  border: 3px solid var(--bf-paper);
-  box-shadow: 8px 8px 0 var(--bf-hit);
 }
 
 .bf__bar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  border-top: 6px solid var(--paper);
 }
 
 .bf__bar p {
   margin: 0;
-  padding: 14px 24px;
+  padding: 16px 24px;
   font-size: 0.82rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .bf__bar p + p {
-  border-left: 3px solid var(--bf-paper);
-  background: var(--bf-hit);
-  color: var(--bf-ink);
+  background: var(--paper);
+  color: var(--ink);
   font-weight: 700;
 }
 
 .bf__bar strong {
-  color: var(--bf-hit);
   text-transform: none;
   letter-spacing: 0;
   font-size: 0.95rem;
+  text-decoration: underline dotted 3px;
+  text-underline-offset: 5px;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
+  .bf__dots {
+    height: 48px;
+  }
+
   .bf__top {
     grid-template-columns: 1fr;
-    padding: 22px 16px 18px;
+    padding: 24px 16px 26px;
+  }
+
+  .bf__figure {
+    justify-content: space-between;
+  }
+
+  .bf__word span {
+    -webkit-text-stroke-width: 1.5px;
   }
 
   .bf__bar {
@@ -83,12 +142,7 @@
   }
 
   .bf__bar p {
-    padding: 12px 16px;
-  }
-
-  .bf__bar p + p {
-    border-left: 0;
-    border-top: 3px solid var(--bf-paper);
+    padding: 14px 16px;
   }
 }
 
