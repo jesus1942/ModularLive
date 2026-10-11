@@ -32,6 +32,48 @@ El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, 
 - **Cerramientos**: placas, aislación, barrera de viento y revestimientos por superficie neta (descontando aberturas e incluyendo hastiales).
 - **Lista de cortes**: optimiza los cortes sobre la barra comercial (6 m por defecto, con espesor de corte) y marca los empalmes de piezas más largas que la barra.
 
+### Ingeniería · fase 0 (base)
+
+ActivaModular es un proyecto de **Jesús Olguín · jesus.olguin**. La especificación y dirección del proyecto son suyas; la implementación asistida de esta fase se identifica como **Astra el Evangelista**. Es asistencia de desarrollo, no una firma de responsabilidad profesional.
+
+La pestaña **Ingeniería** pesa el material **instalado** del mismo modelo que se dibuja. Las barras comerciales sobrantes y la merma de compra no son cargas de la vivienda. Por eso el resumen de compra y el peso propio pueden tener valores distintos.
+
+- Cada barra conserva `id` para compatibilidad y agrega `key`, basada en nivel, rol, muro, función y posición. Editar otros muros o reordenar aberturas no desplaza sus claves. Una modificación de su propia posición puede cambiar su identidad. Las claves llegan a la lista de cortes.
+- Cada superficie identifica sus capas y áreas netas. Un tabique tiene dos caras de revestimiento y una sola aislación. En cubierta, placas y chapa siguen la pendiente con alero; la aislación usa la planta cubierta, igual que el cómputo actual.
+- `cad/engineering/loads.js` registra cada contribución: entrada → fórmula → masa en kg → peso en N. La interfaz muestra kN y también kgf/tf, con gravedad normal `g₀ = 9,80665 m/s²`.
+- La fundación se pesa desde sus sólidos geométricos y se informa **separada**. El peso unitario equivalente del hormigón armado ya representa el conjunto; no se vuelve a sumar la armadura. Esto no comprueba que los dados estén vinculados ni que puedan retener levantamiento.
+- Podés editar masas y densidades de los materiales usados. Un dato permanece como supuesto hasta que cargues su fuente y confirmación. Cambiar resistencia `Fy`, `E` o `f'c` no cambia la masa; cambiar densidad sí.
+- Ubicación, escenario climático, suelo, acero y hormigón se guardan en `project.engineering`, incluido al abrir diseños anteriores, deshacer/rehacer y exportar JSON. Los presets locales no inventan valores del mapa: sus datos están **a confirmar**. El escenario de 58 m/s proviene de la referencia de Telsen del encargo y **no es una velocidad confirmada para Puerto Madryn**.
+- El detalle JSON incluye todas las entradas, contribuciones y supuestos. La impresión incluye un extracto del peso modelado, alcance pendiente y supuestos. La memoria estructural completa corresponde a la fase 8.
+
+**Ejemplo reproducible, módulo por defecto 3 × 6 m:**
+
+| Parte | Cantidad base | Peso modelado |
+| --- | --- | --- |
+| Barras instaladas | 130 piezas, con sus cortes reales | 17,893 kN |
+| Capas y hojas de aberturas | áreas netas del generador | 18,662 kN |
+| Vivienda (sin fundación) | suma de las dos filas anteriores | **36,555 kN (3,727 tf)** |
+| Fundación | 6 × 0,40 × 0,40 × 0,80 = 0,768 m³, a 24 kN/m³ **supuestos** | **18,432 kN (1,880 tf)** |
+| Total modelado | vivienda + fundación | **54,987 kN (5,607 tf)** |
+
+La suma manual de largos, áreas y pesos unitarios está documentada en `cad/engineering/base.test.js`. El resultado completo, determinista y sin fechas variables está fijado en `cad/engineering/fixtures/default-phase-0.json`.
+
+### Fuentes, supuestos y reglamentos
+
+El método de peso por superficies/volúmenes sigue **CIRSOC 101-25, 3.1.1 y 3.1.2**, con el antecedente CIRSOC 101-2005, 3.1. Los valores de referencia y sus fuentes viven en `cad/engineering/data/materials.js`; no certifican los productos de una obra.
+
+- [CIRSOC 101-25, INTI](https://www.inti.gob.ar/assets/uploads/files/cirsoc/02-Reglamento-tramite-de-aprobacion/Reglamento-CIRSOC-101-25.pdf): definición de carga permanente y uso de pesos reales. Los pesos estabilizantes requieren especial cuidado para no sobreestimarlos.
+- [Resolución SOP 11/2026, artículos 1 y 2](https://www.inti.gob.ar/assets/uploads/files/cirsoc/resoluciones-legales/03/RESOL-2026-11-APN-SOP-MEC_CIRSOC.pdf): puso en vigencia nacional CIRSOC 101-25, 102-25, 200-24 y 201-25 e invitó a las jurisdicciones a adherir. Su aplicación provincial y municipal debe confirmarse para cada obra. La mención del proyecto de viento 102-24 en el encargo no se trata como estado vigente.
+- [Knauf ST 12,5](https://knauf.com/es-AR/p/producto/placa-de-yeso-st-12.5-10003_2001): referencia de 8,15 kg/m². Sigue siendo supuesto hasta confirmar marca y placa instalada.
+- [EGGER OSB 3](https://www.egger.com/en/building-products/range/products/osb3): densidad mínima declarada de 600 kg/m³; un mínimo no fija el peso real del tablero. Se adoptan pesos nominales editables, identificados como supuestos.
+- Las chapas, panel sándwich, aislaciones, membranas y hojas de aberturas usan referencias **supuestas** del encargo o hipótesis explícitas; requieren fichas de producto. Los tubos usan la fórmula nominal actual, sin radios ni tolerancias; el catálogo ampliado con datos de fabricante corresponde a la fase 3.
+- Los 24 kN/m³ del hormigón se conservan como **supuesto del encargo**, no como valor reglamentario de hormigón armado: [CIRSOC 101-2005, Tabla 3.1](https://www.inti.gob.ar/assets/uploads/files/cirsoc/vigencia-2013/area100/Reglamento-cirsoc101-completo.pdf) indica 25 kN/m³ para armado. Se puede cargar el peso unitario especificado para el caso real.
+- Suelo inicial `qadm = 100 kPa` es un supuesto hasta contar con estudio de suelos. Resistencias de acero y hormigón también quedan a confirmar. Ninguna de estas entradas genera, por ahora, un diseño de fundaciones o una verificación de barras.
+
+**Alcance pendiente:** este peso es parcial, no la carga D completa para construir. Faltan instalaciones, equipamiento fijo, acabados adicionales y herrajes que no son piezas del modelo. El cielorraso bajo cubierta tampoco está en el modelo ni en el cómputo actual y se declara pendiente; el cielorraso de entrepiso sí se pesa. No se agregan cargas ficticias para ocultar esas faltas.
+
+Todavía no están implementados viento, nieve, sismo, sobrecargas, combinaciones, bajada de cargas, análisis del pórtico, resistencia, deformaciones, anclajes, estabilidad ni dimensionado de fundaciones. El estado permanece **«Revisar»**. El modo automático se reserva para la fase 3 y no cambia secciones en la fase 0. La siguiente entrega es **fase 1 · Cargas**, según `docs/PROMPT-ASTRA-motor-estructural.md`.
+
 ### Estructura del código
 
 | Archivo | Qué hace |
@@ -44,6 +86,12 @@ El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, 
 | `cad/plan-editor.js` | Editor de planta en SVG |
 | `cad/viewer3d.js` | Visor 3D por capas (three.js incluido en `vendor/`, funciona sin conexión) |
 | `cad/app.js` | Interfaz del diseñador |
+| `cad/engineering/units.js` | Unidades SI y presentación en unidades de obra |
+| `cad/engineering/data/` | Materiales con fuentes y localidades con datos pendientes |
+| `cad/engineering/settings.js` | Entradas de ingeniería, migración y diagnóstico de datos inválidos |
+| `cad/engineering/keys.js` | Identidad estable de cada pieza |
+| `cad/engineering/loads.js`, `engine.js` | Peso propio trazable, supuestos y alcance del motor base |
+| `cad/engineering/panel.js` | Panel, pesos editables y extracto imprimible |
 
 Para sumar otro sistema constructivo (steel frame, wood frame, container) se agrega su definición en `SYSTEMS` de `cad/catalog.js` con los perfiles de cada rol, y las reglas propias en el generador.
 
@@ -55,6 +103,8 @@ npm start
 ```
 
 Luego abrir `http://localhost:4173` (calculadora) o `http://localhost:4173/cad.html` (diseñador).
+
+`npm test` corre 37 pruebas: las 19 originales y 18 de ingeniería base. GitHub Actions las corre en cada PR y agrega una prueba de navegador con Playwright en el entorno de CI (no agrega dependencias a la PWA): edición/guardado/deshacer, 3D, escritorio, celular de 390 px y carga del cálculo sin conexión. Conserva capturas y resultados como artefactos del workflow. Las tipografías externas se reemplazan por la fuente de sistema solo durante esa prueba.
 
 ## Alcance
 

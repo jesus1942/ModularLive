@@ -17,13 +17,13 @@ export const PROFILES = {
 };
 
 /** Peso aproximado por metro (sin radios de plegado). */
-export function profileKgPerMeter(profile) {
+export function profileKgPerMeter(profile, density_kg_m3 = STEEL_DENSITY) {
   const { b, h, t, shape } = profile;
   let area;
   if (shape === "rhs") area = 2 * (b + h) * t - 4 * t * t;
   else if (shape === "c") area = (h + 2 * b + 0.03) * t; // alma + alas + labios 15 mm
   else area = (h + 2 * b) * t;
-  return area * STEEL_DENSITY;
+  return area * density_kg_m3;
 }
 
 /** Superficie exterior a pintar por metro lineal. */

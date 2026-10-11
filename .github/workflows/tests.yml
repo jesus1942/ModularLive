@@ -1,0 +1,32 @@
+name: Verificar cálculo y regresiones
+
+on:
+  push:
+    branches: [master, 'astra/**']
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
+      - name: Preparar navegador solo para pruebas
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+      - name: Verificar escritorio, celular y PWA sin conexión
+        run: node scripts/smoke-browser.mjs
+      - name: Capturas y resultado de interfaz
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingenieria-fase-0-interfaz
+          path: test-results/browser/

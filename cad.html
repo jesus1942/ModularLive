@@ -73,6 +73,10 @@
 
     <main class="workspace">
       <aside class="sidebar" id="settingsPanel">
+        <details class="engineering" id="engineeringSettings">
+          <summary>Ingeniería · base</summary>
+          <div class="fields" id="engineeringInputs"></div>
+        </details>
         <details open>
           <summary>Sistema y muros</summary>
           <div class="fields">
@@ -193,6 +197,7 @@
       </section>
 
       <aside class="inspector">
+        <section class="card engineering" id="engineeringSummary" aria-live="polite"></section>
         <section class="card" id="selectionPanel"></section>
         <section class="card">
           <h3>Resumen</h3>
@@ -207,6 +212,7 @@
         <div class="tabs" role="tablist">
           <button type="button" class="is-active" data-tab="materials">Materiales</button>
           <button type="button" data-tab="cuts">Lista de cortes</button>
+          <button type="button" data-tab="engineering">Ingeniería</button>
         </div>
         <div class="results__actions">
           <button type="button" class="btn btn--ghost" id="csvBtn">CSV materiales</button>
@@ -215,6 +221,7 @@
       </div>
       <div class="tab-panel" id="materialsPanel"></div>
       <div class="tab-panel" id="cutsPanel" hidden></div>
+      <section class="tab-panel engineering" id="engineeringPanel" hidden aria-label="Detalle de ingeniería"></section>
       <p class="disclaimer">
         Cómputo y predimensionado. Las secciones y separaciones no están verificadas por cálculo:
         antes de construir validá cargas, normativa local y detalles con un profesional.

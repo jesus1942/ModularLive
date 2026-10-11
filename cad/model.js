@@ -12,6 +12,7 @@ import {
   wallLength
 } from "./geometry.js";
 import { FOUNDATIONS, ROOF_TYPES, SYSTEMS } from "./catalog.js";
+import { defaultEngineering, normalizeEngineering } from "./engineering/settings.js";
 
 let idCounter = 0;
 export const newId = (prefix) => `${prefix}${Date.now().toString(36)}${(idCounter += 1).toString(36)}`;
@@ -109,7 +110,8 @@ export function createDefaultProject() {
     levels: [createLevel(0, walls)],
     foundation: { type: "dados", ...FOUNDATIONS.dados.defaults },
     roof: { type: "plano", slope: ROOF_TYPES.plano.defaultSlope, overhang: 0.25 },
-    settings: { ...DEFAULT_SETTINGS }
+    settings: { ...DEFAULT_SETTINGS },
+    engineering: defaultEngineering()
   };
 }
 
@@ -134,6 +136,7 @@ export function normalizeProject(raw) {
     height: Math.min(Math.max(Number(level.height) || project.settings.wallHeight, 2), 4.5),
     walls: normalizeWalls(level.walls ?? [])
   }));
+  project.engineering = normalizeEngineering(raw?.engineering, project.levels);
   delete project.walls;
   return project;
 }
