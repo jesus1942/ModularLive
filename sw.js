@@ -1,4 +1,4 @@
-const CACHE_NAME = "modular-live-v12";
+const CACHE_NAME = "modular-live-v13";
 const APP_ASSETS = [
   "./",
   "./index.html",
@@ -6,8 +6,12 @@ const APP_ASSETS = [
   "./app.js",
   "./calculator.js",
   "./manifest.webmanifest",
-  "./assets/icon.svg",
-  "./assets/icon-maskable.svg",
+  "./assets/favicon-32.png",
+  "./assets/favicon.png",
+  "./assets/apple-touch-icon.png",
+  "./assets/icon-192.png",
+  "./assets/icon-512.png",
+  "./assets/icon-maskable-512.png",
   "./assets/logo-isotipo.png",
   "./assets/logo-completo-oscuro.png",
   "./footer.css",
