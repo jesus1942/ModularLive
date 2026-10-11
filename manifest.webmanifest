@@ -1,7 +1,7 @@
 {
   "name": "ModularLive",
   "short_name": "ModularLive",
-  "description": "PWA para calcular materiales de viviendas y espacios modulares.",
+  "description": "PWA para diseñar en planta y 3D y calcular materiales de viviendas y espacios modulares.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f3f1e8",
@@ -19,6 +19,13 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Diseñador en planta y 3D",
+      "short_name": "Diseñador",
+      "url": "./cad.html"
     }
   ]
 }

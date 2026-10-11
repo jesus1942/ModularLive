@@ -711,7 +711,7 @@ tbody tr:last-child td {
 }
 
 .app-nav__logo {
-  width: 26px;
+  width: auto;
   height: 26px;
 }
 
@@ -733,6 +733,24 @@ tbody tr:last-child td {
 @media (min-width: 600px) {
   .app-nav__tagline {
     display: block;
+  }
+}
+
+.app-nav__cta {
+  margin-left: auto;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+@media (min-width: 600px) {
+  .app-nav__tagline + .app-nav__cta {
+    margin-left: 16px;
   }
 }
 

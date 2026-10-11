@@ -14,10 +14,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Caveat:wght@400;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Space+Mono:wght@400;700&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="footer.css" />
     <title>ModularLive</title>
   </head>
   <body>
@@ -25,15 +26,16 @@
       <div class="app-nav__inner">
         <div class="app-nav__brand">
           <img
-            src="assets/icon.svg"
-            alt=""
+            src="assets/logo-isotipo.png"
+            alt="Logo de Jesús Olguín"
             class="app-nav__logo"
-            width="26"
+            width="41"
             height="26"
           />
           <span class="app-nav__name">ModularLive</span>
         </div>
         <span class="app-nav__tagline">Presupuestador de espacios modulares</span>
+        <a class="app-nav__cta" href="cad.html">Diseñador en planta y 3D →</a>
       </div>
     </nav>
 
@@ -541,6 +543,23 @@
         <small class="summary-note"></small>
       </article>
     </template>
+
+    <footer class="bf">
+      <div class="bf__dots" aria-hidden="true"></div>
+      <div class="bf__top">
+        <p class="bf__word">Activa<span>Modular</span></p>
+        <div class="bf__figure">
+          <span class="bf__tri" aria-hidden="true"></span>
+          <div class="bf__disc">
+            <img src="assets/logo-completo-oscuro.png" alt="Domotics &amp; IoT Solutions by Jesús Olguín &amp; Cía" width="380" height="298" />
+          </div>
+        </div>
+      </div>
+      <div class="bf__bar">
+        <p>ActivaQR, ActivaControl y ActivaModular son de <strong>jesus.olguin</strong></p>
+        <p>Diseño y cómputo modular</p>
+      </div>
+    </footer>
 
     <div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="true"></div>
 
