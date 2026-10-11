@@ -11,6 +11,7 @@ import {
   sheetCoverage
 } from "./catalog.js";
 import { round } from "./geometry.js";
+import { doorLeaf } from "./model.js";
 
 const n = (v, d = 2) => String(round(v, d)).replace(".", ",");
 
@@ -96,6 +97,10 @@ export function computeBom(project, gen) {
   if (t.anchorPlates > 0) add("Fundación", "Placa de anclaje 200 × 200 × 9,5 mm", "u", t.anchorPlates, "Una por columna");
   if (t.anchorBolts > 0) add("Fundación", "Bulón de anclaje Ø12 × 300 mm con tuerca y arandela", "u", t.anchorBolts, "Cuatro por placa");
   if (t.chemicalAnchors > 0) add("Fundación", "Anclaje químico Ø10 para bastidor inferior", "u", t.chemicalAnchors, "Uno cada 1,2 m de perímetro");
+  if (t.stackPlates > 0) {
+    add("Estructura", "Placa de unión entre niveles 200 × 200 × 9,5 mm", "u", t.stackPlates, "Una por columna de niveles superiores");
+    add("Estructura", "Bulón Ø12 × 50 mm grado 8.8 con tuerca y arandela", "u", t.stackPlates * 4, "Cuatro por placa de unión");
+  }
 
   // ---------- Estructura ----------
   const byProfile = new Map();
@@ -135,6 +140,11 @@ export function computeBom(project, gen) {
     add("Piso", SHEETS[system.sheets.floorDeck].label, "u", sheetsNeeded(t.floorDeckArea, system.sheets.floorDeck, waste), `${n(t.floorDeckArea, 2)} m² de piso`);
     add("Piso", AREA_MATERIALS.aislacion_piso, "m²", Math.ceil(t.floorDeckArea * (1 + waste)), "Entre viguetas");
   }
+  if (t.mezzanineDeckArea > 0) {
+    add("Entrepiso", SHEETS[system.sheets.floorDeck].label, "u", sheetsNeeded(t.mezzanineDeckArea, system.sheets.floorDeck, waste), `${n(t.mezzanineDeckArea, 2)} m² de entrepiso`);
+    add("Entrepiso", "Lana de roca 50 mm (acústica)", "m²", Math.ceil(t.mezzanineDeckArea * (1 + waste)), "Entre viguetas de entrepiso");
+    add("Entrepiso", SHEETS.durlock.label, "u", sheetsNeeded(t.mezzanineDeckArea, "durlock", waste), "Cielorraso bajo entrepiso");
+  }
 
   // ---------- Muros ----------
   const ext = gen.wallSummaries.filter((w) => w.type === "exterior");
@@ -155,28 +165,35 @@ export function computeBom(project, gen) {
 
   // ---------- Techo ----------
   if (t.roofArea > 0) {
-    add("Techo", SHEETS[system.sheets.roofSheathing].label, "u", sheetsNeeded(t.roofArea, system.sheets.roofSheathing, waste), `${n(t.roofArea, 2)} m² de cubierta (en pendiente, con alero)`);
+    add("Techo", SHEETS[system.sheets.roofSheathing].label, "u", sheetsNeeded(t.roofArea, system.sheets.roofSheathing, waste), `${n(t.roofArea, 2)} m² de cubierta${t.levels > 1 ? " (incluye zonas descubiertas de niveles inferiores)" : " (en pendiente, con alero)"}`);
     add("Techo", AREA_MATERIALS.membrana_techo, "m²", Math.ceil(t.roofArea * (1 + waste)), "Bajo cubierta");
     add("Techo", SHEETS[s.roofCladding].label, "u", sheetsNeeded(t.roofArea, s.roofCladding, waste), "Cubierta");
-    add("Techo", AREA_MATERIALS.aislacion_techo, "m²", Math.ceil(t.footprintArea * (1 + waste)), "Sobre cielorraso");
+    add("Techo", AREA_MATERIALS.aislacion_techo, "m²", Math.ceil(t.roofCoveredArea * (1 + waste)), "Sobre cielorraso");
   }
 
   // ---------- Aberturas ----------
   const openings = new Map();
-  project.walls.forEach((w) =>
-    w.openings.forEach((o) => {
-      const key = `${o.kind === "door" ? "Puerta" : "Ventana"} ${o.width.toFixed(2)} × ${o.height.toFixed(2)} m`;
-      openings.set(key, (openings.get(key) ?? 0) + 1);
-    })
+  project.levels.forEach((level) =>
+    level.walls.forEach((w) =>
+      w.openings.forEach((o) => {
+        const size = `${n(o.width)} × ${n(o.height)} m`;
+        const key = o.kind === "door" ? `Puerta ${size} · mano ${doorLeaf(w, o).hand}` : `Ventana ${size}`;
+        const entry = openings.get(key) ?? { count: 0, door: o.kind === "door" };
+        entry.count += 1;
+        openings.set(key, entry);
+      })
+    )
   );
-  openings.forEach((count, key) => add("Aberturas", key, "u", count, "Con marco para fijar al perfil C"));
+  openings.forEach(({ count, door }, key) =>
+    add("Aberturas", key, "u", count, door ? "Mano vista desde el lado hacia donde abre · marco para perfil C" : "Con marco para fijar al perfil C")
+  );
 
   // ---------- Fijaciones ----------
-  const sheetArea = t.floorDeckArea + extSkin * 2 + extInner + intFaces + t.roofArea * 2;
+  const sheetArea = t.floorDeckArea + t.mezzanineDeckArea * 2 + extSkin * 2 + extInner + intFaces + t.roofArea * 2;
   if (sheetArea > 0) {
     add("Fijaciones", 'Tornillo autoperforante punta mecha 8 × 1 1/4"', "u", Math.ceil((sheetArea * 15) / 100) * 100, "≈15 por m² de placa y chapa");
   }
-  const openingCount = [...openings.values()].reduce((a, b) => a + b, 0);
+  const openingCount = [...openings.values()].reduce((a, b) => a + b.count, 0);
   if (openingCount > 0) add("Fijaciones", "Espuma de poliuretano + sellador MS", "u", openingCount * 2, "Dos por abertura");
 
   const concreteRebarKg = rows.filter((r) => r.category === "Fundación" && r.kg).reduce((sum, r) => sum + r.kg, 0);
@@ -187,6 +204,8 @@ export function computeBom(project, gen) {
     cutLists,
     summary: {
       footprintArea: round(t.footprintArea, 2),
+      coveredArea: round(t.coveredArea, 2),
+      levels: t.levels,
       roofArea: round(t.roofArea, 2),
       wallArea: round(extSkin, 2),
       steelKg: round(steelKg, 0),

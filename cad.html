@@ -53,6 +53,10 @@
           <svg viewBox="0 0 24 24"><path d="M3 10h18M3 14h18M3 12h18" /></svg><span>Ventana</span>
         </button>
       </div>
+      <div class="toolbar__group toolbar__group--levels" aria-label="Niveles">
+        <span class="toolbar__label">Nivel</span>
+        <div class="levelbar" id="levelBar"></div>
+      </div>
       <div class="toolbar__group">
         <button type="button" id="undoBtn" title="Deshacer (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-3" /></svg><span>Deshacer</span></button>
         <button type="button" id="redoBtn" title="Rehacer (Ctrl+Y)"><svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10h3" /></svg><span>Rehacer</span></button>
@@ -84,7 +88,7 @@
                 <option value="tubo_80x80x3_2">Tubo 80 × 80 × 3,2 mm</option>
               </select>
             </label>
-            <label>Altura interior (m)<input type="number" step="0.05" min="2" max="4.5" data-path="settings.wallHeight" /></label>
+            <label><span id="levelHeightLabel">Altura interior (m)</span><input id="levelHeight" type="number" step="0.05" min="2" max="4.5" data-path="levels.0.height" /></label>
             <label>Separación de montantes (m)<input type="number" step="0.05" min="0.3" max="1.2" data-path="settings.wallSpacing" /></label>
             <label>Revestimiento exterior
               <select data-path="settings.wallExteriorCladding">
@@ -181,6 +185,7 @@
             <button type="button" data-preset="estructura">Solo estructura</button>
             <button type="button" data-preset="terminado">Terminado</button>
             <button type="button" id="frame3d">Encuadrar</button>
+            <select id="levelView" aria-label="Niveles visibles en 3D" hidden></select>
           </div>
         </div>
       </section>
