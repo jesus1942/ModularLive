@@ -81,6 +81,14 @@ export function createViewer(container) {
 
   let memberMeshes = [];
   let firstBuild = true;
+  let maxLevel = Infinity;
+  const applyLevelVisibility = () => {
+    Object.values(layerGroups).forEach((g) =>
+      g.children.forEach((child) => {
+        child.visible = (child.userData.level ?? 0) <= maxLevel;
+      })
+    );
+  };
 
   function clearGroups() {
     Object.values(layerGroups).forEach((g) => {
@@ -199,19 +207,24 @@ export function createViewer(container) {
     clearGroups();
     gen.solids.forEach((solid) => {
       const mesh = solidMesh(solid);
-      if (mesh) layerGroups.fundacion.add(mesh);
+      if (!mesh) return;
+      mesh.userData.level = solid.level ?? 0;
+      layerGroups.fundacion.add(mesh);
     });
     gen.members.forEach((m) => {
       const mesh = orientedBox(m.a, m.b, m.w, m.h, m.nrm);
       mesh.material = getMaterial(`r-${m.role}`, () => new THREE.MeshLambertMaterial({ color: ROLE_COLORS[m.role] ?? 0x777777 }));
-      mesh.userData = { member: m };
+      mesh.userData = { member: m, level: m.level ?? 0 };
       layerGroups.estructura.add(mesh);
       memberMeshes.push(mesh);
     });
     gen.surfaces.forEach((surface) => {
       const mesh = surfaceMesh(surface);
-      if (mesh) layerGroups[surface.layer]?.add(mesh);
+      if (!mesh) return;
+      mesh.userData.level = surface.level ?? 0;
+      layerGroups[surface.layer]?.add(mesh);
     });
+    applyLevelVisibility();
     if (firstBuild) {
       frame();
       firstBuild = false;
@@ -226,6 +239,11 @@ export function createViewer(container) {
           ? highlightMaterial
           : getMaterial(`r-${m.role}`, () => new THREE.MeshLambertMaterial({ color: ROLE_COLORS[m.role] ?? 0x777777 }));
     });
+  }
+
+  function setMaxLevel(value) {
+    maxLevel = value;
+    applyLevelVisibility();
   }
 
   function setLayerVisible(id, visible) {
@@ -274,6 +292,7 @@ export function createViewer(container) {
     frame,
     highlightWall,
     setLayerVisible,
+    setMaxLevel,
     resize,
     snapshot: () => {
       renderer.render(scene, camera);

@@ -107,6 +107,10 @@ button, input, select { font: inherit; color: inherit; }
 .toolbar button:hover { background: var(--accent-soft); }
 .toolbar button.is-active { background: var(--accent); color: #fff; }
 .toolbar button:disabled { opacity: 0.4; cursor: default; }
+.toolbar__label { align-self: center; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 0 2px 0 4px; }
+.levelbar { display: flex; gap: 3px; }
+.levelbar button { min-width: 38px; justify-content: center; font-weight: 700; font-variant-numeric: tabular-nums; border: 1px solid var(--line); }
+.levelbar button[data-level-add] { border-style: dashed; color: var(--muted); }
 .toolbar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ---------- espacio de trabajo ---------- */
@@ -181,6 +185,9 @@ button, input, select { font: inherit; color: inherit; }
 .plan .opening-gap { stroke: var(--plan-bg); stroke-linecap: butt; }
 .plan .opening { stroke: #214034; stroke-width: 1.5; }
 .plan .opening.is-selected, .plan .opening-swing.is-selected { stroke: var(--accent-2); stroke-width: 2.5; }
+.plan .wall-ghost { stroke: rgba(22, 49, 38, 0.28); stroke-width: 2; stroke-dasharray: 6 5; fill: none; }
+.plan .door-hinge { fill: #214034; }
+.plan .door-hinge.is-selected { fill: var(--accent-2); }
 .plan .opening-swing { fill: none; stroke: #214034; stroke-width: 1; stroke-dasharray: 3 3; }
 .plan .column { fill: #fff; stroke: #214034; stroke-width: 1.5; }
 .plan .dim { font-size: 11px; fill: var(--muted); text-anchor: middle; dominant-baseline: middle; font-variant-numeric: tabular-nums; }
@@ -231,6 +238,8 @@ button, input, select { font: inherit; color: inherit; }
   max-width: calc(100% - 20px);
 }
 .layers--presets { top: auto; bottom: 10px; }
+.layers select { font-size: 0.78rem; background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+.swing-desc { margin: 0 0 4px; font-size: 0.86rem; }
 .chip, .layers button {
   display: inline-flex;
   align-items: center;
@@ -342,6 +351,9 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
   .pane--plan { border-right: 0; border-bottom: 1px solid var(--line); }
   .inspector { order: 2; grid-template-columns: 1fr; }
   .toolbar button span { display: none; }
+  .toolbar { flex-wrap: wrap; row-gap: 6px; overflow-x: visible; }
+  .toolbar__label { display: none; }
+  .toolbar__group { padding-right: 8px; }
   .toolbar__group--view button { padding: 6px 8px; }
   .topbar__actions .btn--ghost:not(label) { display: none; }
   .topbar__actions a.btn--ghost { display: inline-flex; }

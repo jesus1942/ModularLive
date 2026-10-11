@@ -211,3 +211,55 @@ export function clipPolygonHalfPlane(poly, axis, c, keep) {
   }
   return out.length >= 3 ? simplifyPolygon(out) : [];
 }
+
+/**
+ * Parte de A que no queda cubierta por B, como lista de rectángulos {x0, x1, y0, y1}.
+ * Exacto para polígonos ortogonales; aproximado (por celdas) si hay lados inclinados.
+ */
+export function differenceRects(A, B) {
+  const xs = [...new Set([...A, ...(B ?? [])].map((p) => round(p.x, 4)))].sort((a, b) => a - b);
+  const ys = [...new Set([...A, ...(B ?? [])].map((p) => round(p.y, 4)))].sort((a, b) => a - b);
+  // tiras por fila
+  const rows = [];
+  for (let j = 0; j + 1 < ys.length; j += 1) {
+    const strips = [];
+    let open = null;
+    for (let i = 0; i + 1 < xs.length; i += 1) {
+      const c = { x: (xs[i] + xs[i + 1]) / 2, y: (ys[j] + ys[j + 1]) / 2 };
+      const exposed = pointInPolygon(c, A) && !(B && pointInPolygon(c, B));
+      if (exposed && !open) open = { x0: xs[i], x1: xs[i + 1] };
+      else if (exposed) open.x1 = xs[i + 1];
+      else if (open) {
+        strips.push(open);
+        open = null;
+      }
+    }
+    if (open) strips.push(open);
+    rows.push({ y0: ys[j], y1: ys[j + 1], strips });
+  }
+  // unir tiras idénticas de filas contiguas
+  const rects = [];
+  let active = [];
+  rows.forEach((row) => {
+    const next = [];
+    row.strips.forEach((st) => {
+      const match = active.find((r) => Math.abs(r.x0 - st.x0) < EPS && Math.abs(r.x1 - st.x1) < EPS && Math.abs(r.y1 - row.y0) < EPS);
+      if (match) {
+        match.y1 = row.y1;
+        next.push(match);
+      } else {
+        const r = { x0: st.x0, x1: st.x1, y0: row.y0, y1: row.y1 };
+        rects.push(r);
+        next.push(r);
+      }
+    });
+    active = next;
+  });
+  return rects.filter((r) => r.x1 - r.x0 > 0.05 && r.y1 - r.y0 > 0.05);
+}
+
+export const isOrthogonal = (poly) =>
+  poly.every((p, i) => {
+    const q = poly[(i + 1) % poly.length];
+    return Math.abs(p.x - q.x) < 1e-6 || Math.abs(p.y - q.y) < 1e-6;
+  });

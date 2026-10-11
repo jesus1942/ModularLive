@@ -1,6 +1,6 @@
 // Editor de planta 2D sobre SVG. Coordenadas del modelo en metros; Y crece hacia abajo en pantalla.
 import { dist, dot, normalize, pointInPolygon, pointKey, sub, wallDir, wallLength } from "./geometry.js";
-import { newId } from "./model.js";
+import { defaultSwing, doorLeaf, newId } from "./model.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const WALL_THICKNESS = 0.14;
@@ -34,8 +34,11 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   let snapStep = 0.1;
   const pointers = new Map();
   let pinch = null;
+  let level = 0;
 
   const model = () => draft ?? store.project;
+  const lvl = (p) => p.levels[Math.min(level, p.levels.length - 1)];
+  const ghostWalls = (p) => (level > 0 && p.levels[level - 1] ? p.levels[level - 1].walls : []);
   const toScreen = (p) => ({ x: p.x * view.scale + view.ox, y: p.y * view.scale + view.oy });
   const toModel = (evt) => {
     const rect = svg.getBoundingClientRect();
@@ -51,12 +54,18 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
   function snapPointRaw(raw, { anchor = null, freeAxis = false, excludeKey = null } = {}) {
     // se usa el proyecto confirmado: durante un arrastre el vértice movido no debe atraerse a sí mismo
-    const walls = store.project.walls;
+    const walls = lvl(store.project).walls;
     // extremos de muros
     let best = null;
     walls.forEach((w) => {
       [w.a, w.b].forEach((e) => {
         if (excludeKey && pointKey(e) === excludeKey) return;
+        const d = dist(raw, e);
+        if (d < tol(14) && (!best || d < best.d)) best = { p: { ...e }, d, kind: "end" };
+      });
+    });
+    ghostWalls(store.project).forEach((w) => {
+      [w.a, w.b].forEach((e) => {
         const d = dist(raw, e);
         if (d < tol(14) && (!best || d < best.d)) best = { p: { ...e }, d, kind: "end" };
       });
@@ -113,7 +122,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
   // ---------- Operaciones sobre el modelo ----------
   function splitExteriorAt(project, point) {
-    const wall = project.walls.find((w) => {
+    const wall = lvl(project).walls.find((w) => {
       if (w.type !== "exterior") return false;
       const { t, d } = projectOnSegment(point, w.a, w.b);
       return d < 1e-3 && t > 1e-4 && t < 1 - 1e-4;
@@ -126,7 +135,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       if (o.offset + o.width <= sCut) first.openings.push(o);
       else if (o.offset >= sCut) second.openings.push({ ...o, offset: o.offset - sCut });
     });
-    project.walls.splice(project.walls.indexOf(wall), 1, first, second);
+    lvl(project).walls.splice(lvl(project).walls.indexOf(wall), 1, first, second);
   }
 
   function addWall(type, a, b) {
@@ -137,7 +146,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
         splitExteriorAt(p, a);
         splitExteriorAt(p, b);
       }
-      p.walls.push({ id, type, a: { ...a }, b: { ...b }, openings: [] });
+      lvl(p).walls.push({ id, type, a: { ...a }, b: { ...b }, openings: [] });
     });
     return id;
   }
@@ -150,12 +159,12 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     if (x1 - x0 < 0.5 || y1 - y0 < 0.5) return;
     const pts = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
     store.update((p) => {
-      pts.forEach((pt, i) => p.walls.push({ id: newId("w"), type: "exterior", a: pt, b: pts[(i + 1) % 4], openings: [] }));
+      pts.forEach((pt, i) => lvl(p).walls.push({ id: newId("w"), type: "exterior", a: pt, b: pts[(i + 1) % 4], openings: [] }));
     });
   }
 
   function addOpening(kind, raw) {
-    const walls = store.project.walls;
+    const walls = lvl(store.project).walls;
     let hit = null;
     walls.forEach((w) => {
       const { d, t } = projectOnSegment(raw, w.a, w.b);
@@ -177,8 +186,9 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       return;
     }
     const id = newId("o");
+    const extra = kind === "door" ? { hinge: "start", swing: defaultSwing(w, gen?.levels?.[level]?.footprint ?? null) } : {};
     store.update((p) => {
-      p.walls.find((x) => x.id === w.id).openings.push({ id, kind, offset, width, height: def.height, sill: def.sill });
+      lvl(p).walls.find((x) => x.id === w.id).openings.push({ id, kind, offset, width, height: def.height, sill: def.sill, ...extra });
     });
     setSelection({ type: "opening", wallId: w.id, openingId: id });
   }
@@ -187,9 +197,9 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     if (!selection) return;
     const sel = selection;
     store.update((p) => {
-      if (sel.type === "wall") p.walls = p.walls.filter((w) => w.id !== sel.wallId);
+      if (sel.type === "wall") lvl(p).walls = lvl(p).walls.filter((w) => w.id !== sel.wallId);
       else {
-        const w = p.walls.find((x) => x.id === sel.wallId);
+        const w = lvl(p).walls.find((x) => x.id === sel.wallId);
         if (w) w.openings = w.openings.filter((o) => o.id !== sel.openingId);
       }
     });
@@ -199,7 +209,19 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   // ---------- Hit test ----------
   function hitTest(raw) {
     const p = model();
-    for (const w of p.walls) {
+    // barrido de las puertas (cuarto de círculo de la hoja)
+    for (const w of lvl(p).walls) {
+      for (const o of w.openings) {
+        if (o.kind !== "door") continue;
+        const leaf = doorLeaf(w, o);
+        const rel = { x: raw.x - leaf.hingePt.x, y: raw.y - leaf.hingePt.y };
+        const along = { x: leaf.freePt.x - leaf.hingePt.x, y: leaf.freePt.y - leaf.hingePt.y };
+        const a = (rel.x * along.x + rel.y * along.y) / o.width;
+        const b = rel.x * leaf.out.x + rel.y * leaf.out.y;
+        if (a >= -0.05 && b > 0.05 && Math.hypot(a, b) <= o.width + tol(6)) return { type: "opening", wallId: w.id, openingId: o.id };
+      }
+    }
+    for (const w of lvl(p).walls) {
       const L = wallLength(w);
       const { d, t } = projectOnSegment(raw, w.a, w.b);
       if (d > Math.max(tol(10), WALL_THICKNESS)) continue;
@@ -208,7 +230,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       if (o) return { type: "opening", wallId: w.id, openingId: o.id };
     }
     let best = null;
-    p.walls.forEach((w) => {
+    lvl(p).walls.forEach((w) => {
       const { d } = projectOnSegment(raw, w.a, w.b);
       if (d < Math.max(tol(10), WALL_THICKNESS) && (!best || d < best.d)) best = { d, wallId: w.id };
     });
@@ -217,7 +239,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
   function vertexAt(raw) {
     let best = null;
-    model().walls.forEach((w) =>
+    lvl(model()).walls.forEach((w) =>
       [w.a, w.b].forEach((e) => {
         const d = dist(raw, e);
         if (d < tol(12) && (!best || d < best.d)) best = { d, key: pointKey(e), p: { ...e } };
@@ -297,8 +319,17 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       }
       const hit = hitTest(raw);
       if (hit?.type === "opening") {
-        const w = store.project.walls.find((x) => x.id === hit.wallId);
+        const w = lvl(store.project).walls.find((x) => x.id === hit.wallId);
         const o = w.openings.find((x) => x.id === hit.openingId);
+        // doble clic o doble toque sobre una puerta: cambia hacia dónde abre
+        const now = performance.now();
+        const again = lastDoorTap && lastDoorTap.id === o.id && now - lastDoorTap.t < 420 && Math.hypot(evt.clientX - lastDoorTap.x, evt.clientY - lastDoorTap.y) < 12;
+        lastDoorTap = { id: o.id, t: now, x: evt.clientX, y: evt.clientY };
+        if (again && o.kind === "door") {
+          lastDoorTap = null;
+          cycleDoor(w.id, o.id);
+          return;
+        }
         const sPos = dot(sub(raw, w.a), wallDir(w));
         drag = { kind: "opening", wallId: w.id, openingId: o.id, grab: sPos - o.offset, moved: false };
         setSelection(hit);
@@ -347,6 +378,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   }
 
   let lastTap = 0;
+  let lastDoorTap = null;
   function onPointerUp(evt) {
     pointers.delete(evt.pointerId);
     if (pointers.size < 2) pinch = null;
@@ -401,7 +433,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     if (drag?.kind === "vertex") {
       const snapped = snapPoint(raw, { excludeKey: drag.key });
       const next = JSON.parse(JSON.stringify(store.project));
-      next.walls.forEach((w) => {
+      lvl(next).walls.forEach((w) => {
         if (pointKey(w.a) === drag.key) w.a = { ...snapped.p };
         if (pointKey(w.b) === drag.key) w.b = { ...snapped.p };
       });
@@ -413,7 +445,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     }
     if (drag?.kind === "opening") {
       const next = JSON.parse(JSON.stringify(store.project));
-      const w = next.walls.find((x) => x.id === drag.wallId);
+      const w = lvl(next).walls.find((x) => x.id === drag.wallId);
       const o = w.openings.find((x) => x.id === drag.openingId);
       const L = wallLength(w);
       let offset = Math.round((dot(sub(raw, w.a), wallDir(w)) - drag.grab) / snapStep) * snapStep;
@@ -505,9 +537,23 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     }
   });
   svg.addEventListener("dblclick", () => {
+    if (tool === "select") return;
     chain = null;
     render();
   });
+
+  /** Recorre las cuatro combinaciones de bisagra y lado de apertura. */
+  function cycleDoor(wallId, openingId) {
+    store.update((p) => {
+      const o = lvl(p).walls.find((w) => w.id === wallId)?.openings.find((x) => x.id === openingId);
+      if (!o) return;
+      const order = [["start", 1], ["end", 1], ["end", -1], ["start", -1]];
+      const i = order.findIndex(([h, sw]) => h === (o.hinge ?? "start") && sw === (o.swing ?? 1));
+      const [hinge, swing] = order[(i + 1) % order.length];
+      o.hinge = hinge;
+      o.swing = swing;
+    });
+  }
   svg.addEventListener("wheel", onWheel, { passive: false });
   svg.addEventListener("contextmenu", (e) => e.preventDefault());
   window.addEventListener("keydown", onKeyDown);
@@ -538,15 +584,22 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       parts.push(`<line x1="0" y1="${sy}" x2="${W}" y2="${sy}" class="${major ? "grid-major" : "grid-minor"}"/>`);
     }
 
+    // nivel inferior como referencia
+    ghostWalls(project).forEach((w) => {
+      const a = toScreen(w.a);
+      const b = toScreen(w.b);
+      parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="wall-ghost"/>`);
+    });
+
     // superficie cubierta
-    const footprint = gen?.footprint;
+    const footprint = gen?.levels?.[level]?.footprint;
     if (footprint && !draft) {
       parts.push(`<polygon class="footprint" points="${footprint.map((p) => { const s = toScreen(p); return `${s.x},${s.y}`; }).join(" ")}"/>`);
     }
 
     const wt = Math.max(WALL_THICKNESS * view.scale, 4);
     // muros
-    project.walls.forEach((w) => {
+    lvl(project).walls.forEach((w) => {
       const a = toScreen(w.a);
       const b = toScreen(w.b);
       const selected = selection?.wallId === w.id && selection.type === "wall";
@@ -556,7 +609,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     });
 
     // aberturas
-    project.walls.forEach((w) => {
+    lvl(project).walls.forEach((w) => {
       const dir = wallDir(w);
       const n = { x: -dir.y, y: dir.x };
       w.openings.forEach((o) => {
@@ -571,28 +624,33 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
           });
           parts.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="opening opening--window${selected ? " is-selected" : ""}"/>`);
         } else {
+          const leaf = doorLeaf(w, o);
+          const H = toScreen(leaf.hingePt);
+          const T = toScreen(leaf.tip);
+          const P = toScreen(leaf.freePt);
           const r = o.width * view.scale;
-          const tip = { x: p1.x + n.x * r, y: p1.y + n.y * r };
-          parts.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${tip.x}" y2="${tip.y}" class="opening opening--door${selected ? " is-selected" : ""}"/>`);
-          const sweep = n.x * dir.y - n.y * dir.x > 0 ? 0 : 1;
-          parts.push(`<path d="M ${tip.x} ${tip.y} A ${r} ${r} 0 0 ${sweep} ${p2.x} ${p2.y}" class="opening-swing${selected ? " is-selected" : ""}"/>`);
+          const u = { x: T.x - H.x, y: T.y - H.y };
+          const v = { x: P.x - H.x, y: P.y - H.y };
+          const sweep = u.x * v.y - u.y * v.x > 0 ? 1 : 0;
+          parts.push(`<line x1="${H.x}" y1="${H.y}" x2="${T.x}" y2="${T.y}" class="opening opening--door${selected ? " is-selected" : ""}"/>`);
+          parts.push(`<path d="M ${T.x} ${T.y} A ${r} ${r} 0 0 ${sweep} ${P.x} ${P.y}" class="opening-swing${selected ? " is-selected" : ""}"/>`);
+          parts.push(`<circle cx="${H.x}" cy="${H.y}" r="${Math.max(2.5, wt * 0.22)}" class="door-hinge${selected ? " is-selected" : ""}"/>`);
         }
       });
     });
 
     // columnas generadas
     if (gen && !draft) {
-      gen.members
-        .filter((m) => m.group === "Columnas")
-        .forEach((m) => {
-          const c = toScreen({ x: m.a[0], y: m.a[1] });
-          const s = Math.max(m.w * view.scale, 5);
-          parts.push(`<rect x="${c.x - s / 2}" y="${c.y - s / 2}" width="${s}" height="${s}" class="column"/>`);
-        });
+      const colSize = gen.members.find((m) => m.group === "Columnas")?.w ?? 0.1;
+      (gen.levels?.[level]?.columns ?? []).forEach((pt) => {
+        const c = toScreen(pt);
+        const s = Math.max(colSize * view.scale, 5);
+        parts.push(`<rect x="${c.x - s / 2}" y="${c.y - s / 2}" width="${s}" height="${s}" class="column"/>`);
+      });
     }
 
     // cotas
-    project.walls.forEach((w) => {
+    lvl(project).walls.forEach((w) => {
       const L = wallLength(w);
       const dir = wallDir(w);
       let n = { x: -dir.y, y: dir.x };
@@ -613,7 +671,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
     // manijas de vértices del muro seleccionado
     if (selection?.type === "wall") {
-      const w = project.walls.find((x) => x.id === selection.wallId);
+      const w = lvl(project).walls.find((x) => x.id === selection.wallId);
       if (w) {
         [w.a, w.b].forEach((e) => {
           const s = toScreen(e);
@@ -648,7 +706,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
   function fit() {
     const rect = svg.getBoundingClientRect();
-    const pts = store.project.walls.flatMap((w) => [w.a, w.b]);
+    const pts = [...lvl(store.project).walls, ...ghostWalls(store.project)].flatMap((w) => [w.a, w.b]);
     if (!pts.length || !rect.width) {
       view.scale = 60;
       view.ox = 60;
@@ -673,6 +731,18 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     setSelection,
     deleteSelection,
     getSelection: () => selection,
+    cycleDoor,
+    setLevel(index) {
+      level = index;
+      chain = null;
+      rectStart = null;
+      selection = null;
+      onSelectionChange?.(null);
+      render();
+    },
+    get level() {
+      return level;
+    },
     setGeneration(next) {
       gen = next;
       render();

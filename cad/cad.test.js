@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createDefaultProject, findFootprint, normalizeProject } from "./model.js";
+import { copyContour, createDefaultProject, createLevel, doorLeaf, findFootprint, normalizeProject } from "./model.js";
 import { generate } from "./generator.js";
 import { computeBom, optimizeCuts } from "./bom.js";
 import { offsetPolygon, polygonArea, scanPolygon } from "./geometry.js";
@@ -41,7 +41,7 @@ test("módulo 3 × 6 por defecto: piezas verificables a mano", () => {
 test("ninguna columna intermedia cae dentro de una abertura", () => {
   const project = createDefaultProject();
   const gen = generate(project);
-  project.walls.forEach((wall) => {
+  project.levels[0].walls.forEach((wall) => {
     wall.openings.forEach((o) => {
       gen.members
         .filter((m) => m.group === "Columnas")
@@ -113,4 +113,101 @@ test("el cómputo incluye fundación, estructura, cerramientos y aberturas", () 
   assert.ok(bom.rows.every((r) => r.quantity > 0));
   const windows = bom.rows.find((r) => r.material.startsWith("Ventana"));
   assert.equal(windows.quantity, 4);
+});
+
+const rectWalls = (w, d, x0 = 0, y0 = 0) => {
+  const pts = [[x0, y0], [x0 + w, y0], [x0 + w, y0 + d], [x0, y0 + d]];
+  return pts.map((p, i) => ({ type: "exterior", a: { x: p[0], y: p[1] }, b: { x: pts[(i + 1) % 4][0], y: pts[(i + 1) % 4][1] }, openings: [] }));
+};
+
+test("los diseños guardados antes de los niveles se abren como planta baja", () => {
+  const project = normalizeProject({ walls: rectWalls(4, 3), settings: { wallHeight: 2.4 } });
+  assert.equal(project.levels.length, 1);
+  assert.equal(project.levels[0].name, "Planta baja");
+  assert.equal(project.levels[0].height, 2.4);
+  assert.equal(project.walls, undefined);
+});
+
+test("dos módulos apilados: el nivel superior apoya sobre el inferior y el cómputo suma ambos", () => {
+  const one = normalizeProject({ levels: [{ walls: rectWalls(6, 3) }] });
+  const two = normalizeProject({ levels: [{ walls: rectWalls(6, 3) }, { walls: rectWalls(6, 3) }] });
+  const g1 = generate(one);
+  const g2 = generate(two);
+  // el nivel 1 arranca donde termina la planta baja
+  assert.ok(Math.abs(g2.levels[1].elev - g2.levels[0].zTop) < 1e-9);
+  // columnas alineadas: mismas posiciones en planta
+  const keys = (l) => l.columns.map((p) => `${p.x}:${p.y}`).sort().join("|");
+  assert.equal(keys(g2.levels[0]), keys(g2.levels[1]));
+  // el doble de columnas, una sola cubierta y una sola fundación
+  assert.equal(count(g2, "Columnas"), 2 * count(g1, "Columnas"));
+  assert.equal(count(g2, "Cabios"), count(g1, "Cabios"));
+  assert.ok(Math.abs(g2.totals.concrete - g1.totals.concrete) < 1e-9);
+  assert.equal(g2.totals.coveredArea, 36);
+  assert.equal(count(g2, "Viguetas de entrepiso"), count(g1, "Viguetas de piso"));
+  assert.equal(g2.totals.stackPlates, g2.levels[1].columns.length);
+  const bom = computeBom(two, g2);
+  assert.ok(bom.rows.some((r) => r.category === "Entrepiso"));
+  assert.ok(bom.summary.steelKg > computeBom(one, g1).summary.steelKg * 1.6);
+});
+
+test("nivel superior más chico: la parte descubierta lleva cubierta plana", () => {
+  const project = normalizeProject({ levels: [{ walls: rectWalls(8, 3) }, { walls: rectWalls(4, 3) }] });
+  const gen = generate(project);
+  const flat = gen.surfaces.filter((sf) => sf.layer === "cubierta" && sf.level === 0);
+  assert.equal(flat.length, 1);
+  assert.ok(Math.abs(flat[0].area - 12) < 1e-9);
+  assert.ok(gen.members.some((m) => m.group === "Cabios" && m.level === 0));
+  assert.ok(Math.abs(gen.totals.roofCoveredArea - 24) < 1e-9);
+  assert.equal(gen.warnings.filter((w) => w.includes("voladizo")).length, 0);
+});
+
+test("avisa cuando el nivel superior vuela sobre el inferior", () => {
+  const project = normalizeProject({ levels: [{ walls: rectWalls(4, 3) }, { walls: rectWalls(6, 3) }] });
+  const gen = generate(project);
+  assert.ok(gen.warnings.some((w) => w.includes("voladizo")));
+});
+
+test("copiar contorno toma solo los muros exteriores sin aberturas", () => {
+  const base = createDefaultProject();
+  const copy = copyContour(base.levels[0].walls);
+  assert.equal(copy.length, 4);
+  assert.ok(copy.every((w) => w.openings.length === 0));
+  const level = createLevel(1, copy);
+  assert.equal(level.name, "Nivel 1");
+});
+
+test("sentido de apertura de puertas: bisagra, lado y mano", () => {
+  const wall = { a: { x: 0, y: 0 }, b: { x: 4, y: 0 } };
+  const door = { offset: 1, width: 0.9 };
+  const a = doorLeaf(wall, { ...door, hinge: "start", swing: 1 });
+  const b = doorLeaf(wall, { ...door, hinge: "end", swing: 1 });
+  const c = doorLeaf(wall, { ...door, hinge: "start", swing: -1 });
+  assert.deepEqual(a.hingePt, { x: 1, y: 0 });
+  assert.deepEqual(b.hingePt, { x: 1.9, y: 0 });
+  assert.ok(a.tip.y > 0 && c.tip.y < 0);
+  assert.notEqual(a.hand, b.hand);
+  assert.notEqual(a.hand, c.hand);
+  // la mano se separa en el cómputo
+  const project = normalizeProject({
+    walls: rectWalls(6, 3).map((w, i) =>
+      i === 0
+        ? { ...w, openings: [{ kind: "door", offset: 1, width: 0.9, height: 2.1, hinge: "start", swing: 1 }, { kind: "door", offset: 3, width: 0.9, height: 2.1, hinge: "end", swing: 1 }] }
+        : w
+    )
+  });
+  const doors = computeBom(project, generate(project)).rows.filter((r) => r.material.startsWith("Puerta"));
+  assert.equal(doors.length, 2);
+  assert.ok(doors.some((r) => r.material.includes("derecha")) && doors.some((r) => r.material.includes("izquierda")));
+});
+
+test("columnas continuas: el mismo contorno arriba no deja columnas sin apoyo", () => {
+  const ground = createDefaultProject().levels[0].walls; // con puerta que corre una columna
+  const project = normalizeProject({ levels: [{ walls: ground }, { walls: copyContour(ground) }] });
+  const gen = generate(project);
+  assert.equal(gen.warnings.filter((w) => w.includes("no coincide")).length, 0);
+  // una esquina de arriba sobre un muro de abajo genera columna abajo
+  const p2 = normalizeProject({ levels: [{ walls: rectWalls(8, 3) }, { walls: rectWalls(5, 3) }] });
+  const g2 = generate(p2);
+  assert.ok(g2.levels[0].columns.some((c) => Math.abs(c.x - 5) < 1e-6 && Math.abs(c.y) < 1e-6));
+  assert.equal(g2.warnings.filter((w) => w.includes("no coincide")).length, 0);
 });

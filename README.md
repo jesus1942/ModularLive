@@ -13,9 +13,10 @@ Tiene dos herramientas:
 
 1. Dibujá el contorno con **Rectángulo** o con **Muro exterior** (tocás punto a punto; escribí un largo y `Enter` para medidas exactas; tocar el punto inicial cierra el contorno).
 2. Agregá **tabiques** interiores: se enganchan a los muros existentes.
-3. Ubicá **puertas y ventanas** tocando sobre un muro. Con **Seleccionar** se arrastran a lo largo del muro y se editan sus medidas en el panel derecho.
-4. Elegí fundación, techo, revestimientos y separaciones en el panel izquierdo.
-5. Revisá el 3D por capas, la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
+3. Ubicá **puertas y ventanas** tocando sobre un muro. Con **Seleccionar** se arrastran a lo largo del muro y se editan sus medidas en el panel derecho. En las puertas se elige de qué lado va la bisagra y hacia qué lado abre (botones del panel, o doble clic / doble toque sobre la puerta para recorrer las cuatro opciones).
+4. Para **apilar niveles**, tocá `+` en la barra de niveles: se agrega un nivel encima con el contorno del de abajo, que se puede editar libremente. El nivel inferior se ve punteado como referencia y los extremos se enganchan a él. Cada nivel tiene su propia altura.
+5. Elegí fundación, techo, revestimientos y separaciones en el panel izquierdo.
+6. Revisá el 3D por capas (y por niveles), la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
 
 Atajos: `V` seleccionar, `R` rectángulo, `E` muro, `I` tabique, `P` puerta, `N` ventana, `Ctrl+Z` / `Ctrl+Y`, `Esc` termina o cancela, `Supr` borra lo seleccionado. `Shift` libera el modo ortogonal.
 
@@ -25,7 +26,9 @@ El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, 
 
 - **Estructura (tubo estructural)**: columnas en esquinas y cada ≤ 3 m (corridas fuera de las aberturas), bastidor inferior y superior, montantes, jambas, dinteles, antepechos, marcos en perfil C, viguetas de piso, cabios, cumbrera, cenefas y relleno de hastiales.
 - **Fundación**: dados bajo columnas, viga de fundación con pilotines, o platea con viga de borde. Calcula hormigón, excavación, acero por diámetro, malla, film, encofrado y anclajes.
-- **Techo**: plano, una agua o dos aguas, con alero. La superficie se calcula en pendiente.
+- **Niveles**: cada nivel es un módulo completo que apoya sobre el bastidor superior del de abajo, con viguetas de entrepiso, placas de unión abulonadas entre niveles y columnas alineadas (si una esquina de arriba cae sobre un muro de abajo, abajo se agrega una columna que baja hasta la fundación). Avisa los voladizos y las columnas sin apoyo directo.
+- **Techo**: plano, una agua o dos aguas, con alero, sobre el nivel superior. La superficie se calcula en pendiente. Las partes de niveles inferiores que quedan descubiertas llevan cubierta plana con sus cabios.
+- **Puertas**: se computan por medida y mano (vista desde el lado hacia donde abre).
 - **Cerramientos**: placas, aislación, barrera de viento y revestimientos por superficie neta (descontando aberturas e incluyendo hastiales).
 - **Lista de cortes**: optimiza los cortes sobre la barra comercial (6 m por defecto, con espesor de corte) y marca los empalmes de piezas más largas que la barra.
 

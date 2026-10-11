@@ -1,4 +1,4 @@
-const CACHE_NAME = "modular-live-v11";
+const CACHE_NAME = "modular-live-v12";
 const APP_ASSETS = [
   "./",
   "./index.html",

@@ -3,7 +3,7 @@ import { createPlanEditor } from "./plan-editor.js";
 import { createViewer, LAYERS } from "./viewer3d.js";
 import { generate } from "./generator.js";
 import { bomToCsv, computeBom, cutListToCsv } from "./bom.js";
-import { createDefaultProject, newId } from "./model.js";
+import { copyContour, createDefaultProject, createLevel, defaultSwing, doorLeaf, levelName, newId } from "./model.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
 import { pointKey, wallDir, wallLength } from "./geometry.js";
 
@@ -66,6 +66,10 @@ const setPath = (obj, path, value) => {
   target[last] = value;
 };
 
+// ---------- nivel activo ----------
+const activeLevel = () => Math.min(editor.level, store.project.levels.length - 1);
+const levelOf = (p) => p.levels[activeLevel()];
+
 // ---------- editor y visor ----------
 const editor = createPlanEditor({
   svg: $("#planSvg"),
@@ -112,17 +116,22 @@ document.querySelectorAll("[data-preset]").forEach((btn) =>
 $("#frame3d").addEventListener("click", () => viewer?.frame());
 
 // ---------- regeneración ----------
+let lastLevelCount = null;
 function regenerate() {
   const project = store.project;
+  if (editor.level > project.levels.length - 1) editor.setLevel(project.levels.length - 1);
   gen = generate(project);
   bom = computeBom(project, gen);
   editor.setGeneration(gen);
   viewer?.build(gen);
+  if (lastLevelCount !== null && lastLevelCount !== project.levels.length) viewer?.frame();
+  lastLevelCount = project.levels.length;
   viewer?.highlightWall(editor.getSelection()?.wallId ?? null);
   renderMetrics();
   renderMaterials();
   renderCuts();
   renderSelection();
+  renderLevelBar();
   syncSettingsForm();
   $("#undoBtn").disabled = !store.canUndo();
   $("#redoBtn").disabled = !store.canRedo();
@@ -170,6 +179,8 @@ function renderFoundationFields() {
 
 function syncSettingsForm() {
   renderFoundationFields();
+  $("#levelHeight").dataset.path = `levels.${activeLevel()}.height`;
+  $("#levelHeightLabel").textContent = `Altura interior · ${levelOf(store.project).name} (m)`;
   $("#floorSpacingField").hidden = store.project.foundation.type === "platea";
   const nameInput = $("#projectName");
   if (document.activeElement !== nameInput) nameInput.value = store.project.name;
@@ -207,7 +218,7 @@ $("#orthoToggle").addEventListener("change", (e) => editor.setOrtho(e.target.che
 // ---------- panel de selección ----------
 function moveVertex(project, from, to) {
   const key = pointKey(from);
-  project.walls.forEach((w) => {
+  levelOf(project).walls.forEach((w) => {
     if (pointKey(w.a) === key) w.a = { ...to };
     if (pointKey(w.b) === key) w.b = { ...to };
   });
@@ -217,20 +228,46 @@ function renderSelection() {
   const panel = $("#selectionPanel");
   const sel = editor.getSelection();
   const project = store.project;
-  const wall = sel && project.walls.find((w) => w.id === sel.wallId);
+  const level = levelOf(project);
+  const li = activeLevel();
+  const wall = sel && level.walls.find((w) => w.id === sel.wallId);
   if (!sel || !wall) {
-    const counts = project.walls.reduce((acc, w) => ((acc[w.type] += 1), acc), { exterior: 0, interior: 0 });
+    const counts = level.walls.reduce((acc, w) => ((acc[w.type] += 1), acc), { exterior: 0, interior: 0 });
+    const info = gen?.levels?.[li];
     panel.innerHTML = `
-      <h3>Planta</h3>
-      <p class="muted">${counts.exterior} muros exteriores · ${counts.interior} tabiques. Elegí una herramienta arriba para dibujar o tocá un elemento para editarlo.</p>
+      <h3>${escapeHtml(level.name)} <span class="muted">${project.levels.length > 1 ? `de ${project.levels.length} niveles` : ""}</span></h3>
+      <p class="muted">${counts.exterior} muros exteriores · ${counts.interior} tabiques${info ? ` · piso a ${fmtNum(info.floorTop)} m` : ""}. Elegí una herramienta arriba para dibujar o tocá un elemento para editarlo.</p>
+      <div class="row-actions">
+        <button type="button" class="btn btn--ghost" data-action="add-level">+ Nivel encima</button>
+        ${li > 0 ? '<button type="button" class="btn btn--ghost" data-action="copy-contour">Copiar contorno de abajo</button>' : ""}
+        ${project.levels.length > 1 ? '<button type="button" class="btn btn--danger" data-action="delete-level">Eliminar nivel</button>' : ""}
+      </div>
       <ul class="shortcuts">
         <li><kbd>R</kbd> rectángulo · <kbd>E</kbd> muro · <kbd>I</kbd> tabique</li>
         <li><kbd>P</kbd> puerta · <kbd>N</kbd> ventana · <kbd>V</kbd> seleccionar</li>
+        <li>Doble clic en una puerta cambia hacia dónde abre</li>
         <li>Mientras dibujás, escribí el largo y <kbd>Enter</kbd></li>
       </ul>`;
+    panel.querySelector('[data-action="add-level"]').addEventListener("click", addLevelAbove);
+    panel.querySelector('[data-action="copy-contour"]')?.addEventListener("click", () => {
+      if (level.walls.length && !confirm(`¿Reemplazar los muros de ${level.name} por el contorno del nivel de abajo?`)) return;
+      store.update((p) => {
+        p.levels[li].walls = copyContour(p.levels[li - 1].walls);
+      });
+    });
+    panel.querySelector('[data-action="delete-level"]')?.addEventListener("click", () => {
+      if (!confirm(`¿Eliminar ${level.name}${li < project.levels.length - 1 ? " y bajar los niveles de arriba" : ""}? Se puede deshacer.`)) return;
+      store.update((p) => {
+        p.levels.splice(li, 1);
+        p.levels.forEach((l, i) => {
+          if (/^(Planta baja|Nivel \d+)$/.test(l.name)) l.name = levelName(i);
+        });
+      });
+      editor.setLevel(Math.max(0, li - 1));
+    });
     return;
   }
-  const index = project.walls.indexOf(wall) + 1;
+  const index = level.walls.indexOf(wall) + 1;
   if (sel.type === "opening") {
     const o = wall.openings.find((x) => x.id === sel.openingId);
     if (!o) {
@@ -246,15 +283,27 @@ function renderSelection() {
         ${o.kind === "window" ? `<label>Antepecho (m)<input type="number" step="0.05" min="0" data-o="sill" value="${o.sill}" /></label>` : ""}
         <label>Desde el inicio (m)<input type="number" step="0.05" min="0" data-o="offset" value="${o.offset.toFixed(2)}" /></label>
       </div>
+      ${o.kind === "door" ? doorSwingHtml(wall, o, li) : ""}
       <div class="row-actions"><button type="button" class="btn btn--danger" data-action="delete">Eliminar abertura</button></div>`;
+    panel.querySelectorAll("[data-swing]").forEach((b) =>
+      b.addEventListener("click", () => {
+        store.update((p) => {
+          const op = levelOf(p).walls.find((w) => w.id === wall.id).openings.find((x) => x.id === o.id);
+          if (b.dataset.swing === "hinge") op.hinge = op.hinge === "end" ? "start" : "end";
+          else op.swing = op.swing === -1 ? 1 : -1;
+        });
+      })
+    );
     panel.querySelectorAll("[data-o]").forEach((input) =>
       input.addEventListener("change", () => {
         const key = input.dataset.o;
         const value = key === "kind" ? input.value : Number(input.value);
         store.update((p) => {
-          const op = p.walls.find((w) => w.id === wall.id).openings.find((x) => x.id === o.id);
+          const op = levelOf(p).walls.find((w) => w.id === wall.id).openings.find((x) => x.id === o.id);
           op[key] = value;
-          if (key === "kind") Object.assign(op, value === "door" ? { sill: 0, height: 2.1 } : { sill: 1, height: 1 });
+          if (key === "kind") {
+            Object.assign(op, value === "door" ? { sill: 0, height: 2.1, hinge: "start", swing: defaultSwing(wall, gen?.levels?.[li]?.footprint ?? null) } : { sill: 1, height: 1 });
+          }
         });
       })
     );
@@ -271,7 +320,7 @@ function renderSelection() {
       <ul class="opening-list">${
         wall.openings.length
           ? wall.openings
-              .map((o) => `<li><button type="button" data-open="${o.id}">${o.kind === "door" ? "Puerta" : "Ventana"} ${fmtNum(o.width)} × ${fmtNum(o.height)} m · a ${fmtNum(o.offset)} m</button></li>`)
+              .map((o) => `<li><button type="button" data-open="${o.id}">${o.kind === "door" ? `Puerta mano ${doorLeaf(wall, o).hand}` : "Ventana"} ${fmtNum(o.width)} × ${fmtNum(o.height)} m · a ${fmtNum(o.offset)} m</button></li>`)
               .join("")
           : '<li class="muted">Sin aberturas</li>'
       }</ul>
@@ -282,7 +331,7 @@ function renderSelection() {
       </div>`;
     panel.querySelector('[data-w="type"]').addEventListener("change", (e) => {
       store.update((p) => {
-        p.walls.find((w) => w.id === wall.id).type = e.target.value;
+        levelOf(p).walls.find((w) => w.id === wall.id).type = e.target.value;
       });
     });
     panel.querySelector('[data-w="length"]').addEventListener("change", (e) => {
@@ -311,8 +360,9 @@ function renderSelection() {
         return;
       }
       const id = newId("o");
+      const extra = kind === "door" ? { hinge: "start", swing: defaultSwing(wall, gen?.levels?.[li]?.footprint ?? null) } : {};
       store.update((p) => {
-        p.walls.find((w) => w.id === wall.id).openings.push({ id, kind, offset, ...def, width });
+        levelOf(p).walls.find((w) => w.id === wall.id).openings.push({ id, kind, offset, ...def, width, ...extra });
       });
       editor.setSelection({ type: "opening", wallId: wall.id, openingId: id });
     };
@@ -322,11 +372,78 @@ function renderSelection() {
   panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
 }
 
+function doorSwingHtml(wall, o, li) {
+  const leaf = doorLeaf(wall, o);
+  const footprint = gen?.levels?.[li]?.footprint;
+  let side = leaf.side === 1 ? "hacia un lado" : "hacia el otro lado";
+  if (wall.type === "exterior" && footprint) side = defaultSwing(wall, footprint) === leaf.side ? "hacia adentro" : "hacia afuera";
+  return `
+    <h4>Apertura</h4>
+    <p class="swing-desc">Abre <strong>${side}</strong> · mano <strong>${leaf.hand}</strong> <span class="muted small">(vista desde el lado hacia donde abre)</span></p>
+    <div class="row-actions">
+      <button type="button" class="btn btn--ghost" data-swing="hinge" title="Pasa las bisagras al otro extremo">⇄ Cambiar bisagra</button>
+      <button type="button" class="btn btn--ghost" data-swing="side" title="Abre hacia el otro lado del muro">⇅ Abrir del otro lado</button>
+    </div>
+    <p class="muted small">También podés hacer doble clic sobre la puerta en la planta.</p>`;
+}
+
+function addLevelAbove() {
+  const project = store.project;
+  const top = project.levels.length - 1;
+  const source = project.levels[top];
+  if (!source.walls.some((w) => w.type === "exterior")) {
+    toast("Dibujá primero el contorno del nivel de abajo.");
+    return;
+  }
+  store.update((p) => {
+    p.levels.push(createLevel(p.levels.length, copyContour(source.walls), source.height));
+  });
+  editor.setLevel(top + 1);
+  toast(`${levelName(top + 1)} agregado con el contorno de abajo. Editalo como quieras.`);
+}
+
+function renderLevelBar() {
+  const project = store.project;
+  const li = activeLevel();
+  const short = (l, i) => (i === 0 ? "PB" : `N${i}`);
+  $("#levelBar").innerHTML =
+    [...project.levels]
+      .map((l, i) => ({ l, i }))
+      .reverse()
+      .map(({ l, i }) => `<button type="button" data-level="${i}" class="${i === li ? "is-active" : ""}" title="${escapeHtml(l.name)}">${short(l, i)}</button>`)
+      .join("") + '<button type="button" data-level-add title="Agregar un nivel encima (copia el contorno)">+</button>';
+  const sel = $("#levelView");
+  const options = ['<option value="all">Todos los niveles</option>', ...project.levels.map((l, i) => `<option value="${i}">Hasta ${escapeHtml(l.name.toLowerCase())}</option>`)];
+  if (project.levels.length > 1) {
+    const value = sel.value;
+    sel.innerHTML = options.join("");
+    sel.value = [...sel.options].some((op) => op.value === value) ? value : "all";
+    sel.hidden = false;
+  } else {
+    sel.hidden = true;
+    sel.value = "all";
+  }
+  viewer?.setMaxLevel(sel.value === "all" ? Infinity : Number(sel.value));
+}
+
+$("#levelBar").addEventListener("click", (e) => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  if (btn.hasAttribute("data-level-add")) {
+    addLevelAbove();
+    return;
+  }
+  editor.setLevel(Number(btn.dataset.level));
+  regenerate();
+  requestAnimationFrame(() => editor.render());
+});
+$("#levelView").addEventListener("change", (e) => viewer?.setMaxLevel(e.target.value === "all" ? Infinity : Number(e.target.value)));
+
 // ---------- resultados ----------
 function renderMetrics() {
   const s = bom.summary;
   const items = [
-    ["Sup. cubierta", `${fmtNum(s.footprintArea)} m²`],
+    ["Sup. cubierta", `${fmtNum(s.coveredArea)} m²${s.levels > 1 ? ` · ${s.levels} niveles` : ""}`],
     ["Cubierta", `${fmtNum(s.roofArea)} m²`],
     ["Acero estructural", `${fmtNum(s.steelKg, 0)} kg`],
     ["Barras de perfil", fmtNum(s.structuralBars, 0)],
@@ -424,10 +541,10 @@ document.querySelectorAll("[data-view]").forEach((b) =>
 $("#newBtn").addEventListener("click", () => {
   if (!confirm("¿Empezar un diseño nuevo? El actual se puede recuperar con Deshacer.")) return;
   const blank = createDefaultProject();
-  blank.walls = [];
+  blank.levels = [createLevel(0, [])];
   blank.name = "Proyecto nuevo";
   store.replace(blank);
-  editor.setSelection(null);
+  editor.setLevel(0);
   editor.setTool("rect");
 });
 
@@ -440,9 +557,9 @@ $("#openFile").addEventListener("change", async (e) => {
   if (!file) return;
   try {
     const data = JSON.parse(await file.text());
-    if (!Array.isArray(data.walls)) throw new Error("formato");
+    if (!Array.isArray(data.walls) && !Array.isArray(data.levels)) throw new Error("formato");
     store.replace(data);
-    editor.setSelection(null);
+    editor.setLevel(0);
     requestAnimationFrame(() => {
       editor.fit();
       viewer?.frame();
