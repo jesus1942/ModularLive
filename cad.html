@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Diseñador de viviendas modulares en planta y 3D con cómputo de materiales." />
+    <meta name="theme-color" content="#214034" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="cad/cad.css" />
+    <title>ModularLive · Diseñador</title>
+  </head>
+  <body>
+    <nav class="topbar">
+      <div class="topbar__brand">
+        <img src="assets/icon.svg" alt="" width="24" height="24" />
+        <strong>ModularLive</strong>
+        <span class="topbar__badge">Diseñador</span>
+      </div>
+      <input class="topbar__name" id="projectName" aria-label="Nombre del proyecto" />
+      <div class="topbar__actions">
+        <a class="btn btn--ghost" href="index.html">Calculadora rápida</a>
+        <button class="btn btn--ghost" id="newBtn" type="button">Nuevo</button>
+        <label class="btn btn--ghost" for="openFile">Abrir</label>
+        <input type="file" id="openFile" accept=".json,application/json" hidden />
+        <button class="btn btn--ghost" id="saveBtn" type="button">Guardar diseño</button>
+        <button class="btn" id="printBtn" type="button">Imprimir</button>
+      </div>
+    </nav>
+
+    <div class="toolbar" role="toolbar" aria-label="Herramientas de dibujo">
+      <div class="toolbar__group" id="toolButtons">
+        <button type="button" data-tool="select" title="Seleccionar (V)">
+          <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.5L10 19z" /></svg><span>Seleccionar</span>
+        </button>
+        <button type="button" data-tool="rect" title="Contorno rectangular (R)">
+          <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" /></svg><span>Rectángulo</span>
+        </button>
+        <button type="button" data-tool="exterior" title="Muro exterior (E)">
+          <svg viewBox="0 0 24 24"><path d="M4 18V6h16" stroke-width="4" /></svg><span>Muro exterior</span>
+        </button>
+        <button type="button" data-tool="interior" title="Tabique interior (I)">
+          <svg viewBox="0 0 24 24"><path d="M12 4v16" stroke-width="2.5" /></svg><span>Tabique</span>
+        </button>
+        <button type="button" data-tool="door" title="Puerta (P)">
+          <svg viewBox="0 0 24 24"><path d="M4 20h4V8a12 12 0 0 1 12 12" /></svg><span>Puerta</span>
+        </button>
+        <button type="button" data-tool="window" title="Ventana (N)">
+          <svg viewBox="0 0 24 24"><path d="M3 10h18M3 14h18M3 12h18" /></svg><span>Ventana</span>
+        </button>
+      </div>
+      <div class="toolbar__group">
+        <button type="button" id="undoBtn" title="Deshacer (Ctrl+Z)"><svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 0 1 0 10h-3" /></svg><span>Deshacer</span></button>
+        <button type="button" id="redoBtn" title="Rehacer (Ctrl+Y)"><svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 0 0 0 10h3" /></svg><span>Rehacer</span></button>
+        <button type="button" id="fitBtn" title="Encuadrar"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" /></svg><span>Encuadrar</span></button>
+      </div>
+      <div class="toolbar__group toolbar__group--view" role="tablist" aria-label="Vista">
+        <button type="button" data-view="split" class="is-active">Planta + 3D</button>
+        <button type="button" data-view="plan">Planta</button>
+        <button type="button" data-view="3d">3D</button>
+      </div>
+    </div>
+
+    <main class="workspace">
+      <aside class="sidebar" id="settingsPanel">
+        <details open>
+          <summary>Sistema y muros</summary>
+          <div class="fields">
+            <label>Sistema constructivo
+              <select data-path="system" id="systemSelect">
+                <option value="steel_tube">Tubo estructural</option>
+                <option value="light_steel" disabled>Steel frame (próximamente)</option>
+                <option value="wood" disabled>Wood frame (próximamente)</option>
+                <option value="container" disabled>Container (próximamente)</option>
+              </select>
+            </label>
+            <label>Bastidor principal
+              <select data-path="mainFrame">
+                <option value="tubo_100x100x3_2">Tubo 100 × 100 × 3,2 mm</option>
+                <option value="tubo_80x80x3_2">Tubo 80 × 80 × 3,2 mm</option>
+              </select>
+            </label>
+            <label>Altura interior (m)<input type="number" step="0.05" min="2" max="4.5" data-path="settings.wallHeight" /></label>
+            <label>Separación de montantes (m)<input type="number" step="0.05" min="0.3" max="1.2" data-path="settings.wallSpacing" /></label>
+            <label>Revestimiento exterior
+              <select data-path="settings.wallExteriorCladding">
+                <option value="chapa_sinusoidal">Chapa sinusoidal</option>
+                <option value="chapa_trapezoidal">Chapa trapezoidal</option>
+                <option value="cementicia">Placa cementicia</option>
+                <option value="panel_sandwich">Panel sándwich</option>
+              </select>
+            </label>
+            <label>Revestimiento interior
+              <select data-path="settings.wallInteriorLining">
+                <option value="durlock">Placa de yeso</option>
+                <option value="durlock_verde">Placa de yeso hidrófuga</option>
+                <option value="cementicia">Placa cementicia</option>
+                <option value="frp">Panel FRP lavable</option>
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" data-path="settings.interiorWallInsulation" /> Aislación en tabiques</label>
+          </div>
+        </details>
+        <details open>
+          <summary>Fundación y piso</summary>
+          <div class="fields">
+            <label>Tipo de fundación
+              <select data-path="foundation.type" id="foundationType">
+                <option value="dados">Dados bajo columnas</option>
+                <option value="vigas_pilotines">Viga de fundación + pilotines</option>
+                <option value="platea">Platea de hormigón</option>
+              </select>
+            </label>
+            <div id="foundationFields" class="fields"></div>
+            <label id="floorSpacingField">Separación de viguetas (m)<input type="number" step="0.05" min="0.3" max="1" data-path="settings.floorSpacing" /></label>
+          </div>
+        </details>
+        <details open>
+          <summary>Techo</summary>
+          <div class="fields">
+            <label>Tipo
+              <select data-path="roof.type" id="roofType">
+                <option value="plano">Plano (pendiente mínima)</option>
+                <option value="una_agua">Una agua</option>
+                <option value="dos_aguas">Dos aguas</option>
+              </select>
+            </label>
+            <label>Pendiente (%)<input type="number" step="1" min="0" max="100" data-path="roof.slope" /></label>
+            <label>Alero (m)<input type="number" step="0.05" min="0" max="1.2" data-path="roof.overhang" /></label>
+            <label>Separación de cabios (m)<input type="number" step="0.05" min="0.3" max="1.2" data-path="settings.roofSpacing" /></label>
+            <label>Cubierta
+              <select data-path="settings.roofCladding">
+                <option value="chapa_sinusoidal">Chapa sinusoidal</option>
+                <option value="chapa_trapezoidal">Chapa trapezoidal</option>
+                <option value="panel_sandwich">Panel sándwich</option>
+              </select>
+            </label>
+          </div>
+        </details>
+        <details>
+          <summary>Compra y cortes</summary>
+          <div class="fields">
+            <label>Largo de barra comercial (m)<input type="number" step="0.5" min="3" max="12" data-path="settings.stockLength" /></label>
+            <label>Merma en placas y áreas (%)<input type="number" step="1" min="0" max="30" data-path="settings.wasteFactor" /></label>
+            <label>Espesor de corte (mm)<input type="number" step="0.5" min="0" max="10" data-path="settings.kerf" /></label>
+          </div>
+        </details>
+        <details>
+          <summary>Dibujo</summary>
+          <div class="fields">
+            <label>Paso de snap
+              <select id="snapStep">
+                <option value="0.05">5 cm</option>
+                <option value="0.1" selected>10 cm</option>
+                <option value="0.25">25 cm</option>
+                <option value="0.5">50 cm</option>
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" id="orthoToggle" checked /> Muros ortogonales (Shift libera)</label>
+          </div>
+        </details>
+      </aside>
+
+      <section class="stage" id="stage" data-view="split">
+        <div class="pane pane--plan">
+          <svg id="planSvg" class="plan" data-tool="select" aria-label="Planta"></svg>
+          <div class="pane__status" id="planStatus" aria-live="polite"></div>
+          <div class="pane__zoom">
+            <button type="button" id="zoomIn" aria-label="Acercar">+</button>
+            <button type="button" id="zoomOut" aria-label="Alejar">−</button>
+          </div>
+        </div>
+        <div class="pane pane--3d">
+          <div id="viewer" class="viewer"></div>
+          <div class="layers" id="layerToggles"></div>
+          <div class="layers layers--presets">
+            <button type="button" data-preset="estructura">Solo estructura</button>
+            <button type="button" data-preset="terminado">Terminado</button>
+            <button type="button" id="frame3d">Encuadrar</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="inspector">
+        <section class="card" id="selectionPanel"></section>
+        <section class="card">
+          <h3>Resumen</h3>
+          <div class="metrics" id="metrics"></div>
+          <ul class="warnings" id="warnings"></ul>
+        </section>
+      </aside>
+    </main>
+
+    <section class="results">
+      <div class="results__head">
+        <div class="tabs" role="tablist">
+          <button type="button" class="is-active" data-tab="materials">Materiales</button>
+          <button type="button" data-tab="cuts">Lista de cortes</button>
+        </div>
+        <div class="results__actions">
+          <button type="button" class="btn btn--ghost" id="csvBtn">CSV materiales</button>
+          <button type="button" class="btn btn--ghost" id="cutsCsvBtn">CSV cortes</button>
+        </div>
+      </div>
+      <div class="tab-panel" id="materialsPanel"></div>
+      <div class="tab-panel" id="cutsPanel" hidden></div>
+      <p class="disclaimer">
+        Cómputo y predimensionado. Las secciones y separaciones no están verificadas por cálculo:
+        antes de construir validá cargas, normativa local y detalles con un profesional.
+      </p>
+    </section>
+
+    <section class="print-only" id="printSheet"></section>
+    <div class="toast" id="toast" role="status"></div>
+
+    <script type="module" src="cad/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,696 @@
+// Editor de planta 2D sobre SVG. Coordenadas del modelo en metros; Y crece hacia abajo en pantalla.
+import { dist, dot, normalize, pointInPolygon, pointKey, sub, wallDir, wallLength } from "./geometry.js";
+import { newId } from "./model.js";
+
+const NS = "http://www.w3.org/2000/svg";
+const WALL_THICKNESS = 0.14;
+const DEFAULT_OPENINGS = {
+  door: { width: 0.9, height: 2.1, sill: 0 },
+  window: { width: 1.2, height: 1, sill: 1 }
+};
+
+const fmt = (v) => v.toFixed(2).replace(".", ",");
+
+function projectOnSegment(p, a, b) {
+  const ab = sub(b, a);
+  const L2 = dot(ab, ab);
+  const t = L2 ? Math.max(0, Math.min(1, dot(sub(p, a), ab) / L2)) : 0;
+  const q = { x: a.x + ab.x * t, y: a.y + ab.y * t };
+  return { q, t, d: dist(p, q) };
+}
+
+export function createPlanEditor({ svg, store, status, onSelectionChange, onToolChange }) {
+  const view = { scale: 60, ox: 60, oy: 60 };
+  let tool = "select";
+  let selection = null; // { type: "wall", wallId } | { type: "opening", wallId, openingId }
+  let gen = null;
+  let draft = null; // proyecto temporal durante arrastres
+  let chain = null; // { type, start, last }
+  let rectStart = null;
+  let cursor = null; // { p, kind }
+  let drag = null;
+  let typed = "";
+  let ortho = true;
+  let snapStep = 0.1;
+  const pointers = new Map();
+  let pinch = null;
+
+  const model = () => draft ?? store.project;
+  const toScreen = (p) => ({ x: p.x * view.scale + view.ox, y: p.y * view.scale + view.oy });
+  const toModel = (evt) => {
+    const rect = svg.getBoundingClientRect();
+    return { x: (evt.clientX - rect.left - view.ox) / view.scale, y: (evt.clientY - rect.top - view.oy) / view.scale };
+  };
+  const tol = (px) => px / view.scale;
+
+  // ---------- Snap ----------
+  function snapPoint(raw, opts = {}) {
+    const r = snapPointRaw(raw, opts);
+    return { ...r, p: { x: Math.round(r.p.x * 1000) / 1000, y: Math.round(r.p.y * 1000) / 1000 } };
+  }
+
+  function snapPointRaw(raw, { anchor = null, freeAxis = false, excludeKey = null } = {}) {
+    // se usa el proyecto confirmado: durante un arrastre el vértice movido no debe atraerse a sí mismo
+    const walls = store.project.walls;
+    // extremos de muros
+    let best = null;
+    walls.forEach((w) => {
+      [w.a, w.b].forEach((e) => {
+        if (excludeKey && pointKey(e) === excludeKey) return;
+        const d = dist(raw, e);
+        if (d < tol(14) && (!best || d < best.d)) best = { p: { ...e }, d, kind: "end" };
+      });
+    });
+    if (best) return best;
+    let p = { ...raw };
+    if (anchor && ortho && !freeAxis) {
+      const dx = Math.abs(raw.x - anchor.x);
+      const dy = Math.abs(raw.y - anchor.y);
+      if (dx >= dy) p.y = anchor.y;
+      else p.x = anchor.x;
+      const len = dist(p, anchor);
+      const snappedLen = Math.round(len / snapStep) * snapStep;
+      const dir = normalize(sub(p, anchor));
+      p = { x: anchor.x + dir.x * snappedLen, y: anchor.y + dir.y * snappedLen };
+    } else {
+      p = { x: Math.round(raw.x / snapStep) * snapStep, y: Math.round(raw.y / snapStep) * snapStep };
+    }
+    // sobre un muro existente (encuentro en T)
+    let edge = null;
+    walls.forEach((w) => {
+      const { q, d, t } = projectOnSegment(raw, w.a, w.b);
+      if (t > 0 && t < 1 && d < tol(10) && (!edge || d < edge.d)) {
+        // posición sobre el muro redondeada al paso de snap
+        const L = dist(w.a, w.b);
+        const dir = normalize(sub(w.b, w.a));
+        let sPos = Math.round((t * L) / snapStep) * snapStep;
+        if (Math.abs(dir.y) < 1e-9) sPos = Math.abs(Math.round(q.x / snapStep) * snapStep - w.a.x);
+        else if (Math.abs(dir.x) < 1e-9) sPos = Math.abs(Math.round(q.y / snapStep) * snapStep - w.a.y);
+        if (sPos > 1e-6 && sPos < L - 1e-6) {
+          edge = { p: { x: w.a.x + dir.x * sPos, y: w.a.y + dir.y * sPos }, d, kind: "edge", wallId: w.id };
+        }
+      }
+    });
+    if (edge) {
+      if (anchor && ortho && !freeAxis) {
+        // mantener ortogonalidad: intersectar la recta ortogonal con el muro
+        const w = walls.find((x) => x.id === edge.wallId);
+        const horizontal = Math.abs(p.y - anchor.y) < 1e-9;
+        const dir = sub(w.b, w.a);
+        if (horizontal && Math.abs(dir.y) > 1e-9) {
+          const t = (anchor.y - w.a.y) / dir.y;
+          if (t > 0 && t < 1) return { p: { x: w.a.x + dir.x * t, y: anchor.y }, kind: "edge", wallId: w.id };
+        } else if (!horizontal && Math.abs(dir.x) > 1e-9) {
+          const t = (anchor.x - w.a.x) / dir.x;
+          if (t > 0 && t < 1) return { p: { x: anchor.x, y: w.a.y + dir.y * t }, kind: "edge", wallId: w.id };
+        }
+      } else {
+        return edge;
+      }
+    }
+    return { p, kind: "grid" };
+  }
+
+  // ---------- Operaciones sobre el modelo ----------
+  function splitExteriorAt(project, point) {
+    const wall = project.walls.find((w) => {
+      if (w.type !== "exterior") return false;
+      const { t, d } = projectOnSegment(point, w.a, w.b);
+      return d < 1e-3 && t > 1e-4 && t < 1 - 1e-4;
+    });
+    if (!wall) return;
+    const sCut = dist(wall.a, point);
+    const first = { ...wall, id: newId("w"), b: { ...point }, openings: [] };
+    const second = { ...wall, id: newId("w"), a: { ...point }, openings: [] };
+    wall.openings.forEach((o) => {
+      if (o.offset + o.width <= sCut) first.openings.push(o);
+      else if (o.offset >= sCut) second.openings.push({ ...o, offset: o.offset - sCut });
+    });
+    project.walls.splice(project.walls.indexOf(wall), 1, first, second);
+  }
+
+  function addWall(type, a, b) {
+    if (dist(a, b) < 0.1) return null;
+    const id = newId("w");
+    store.update((p) => {
+      if (type === "exterior") {
+        splitExteriorAt(p, a);
+        splitExteriorAt(p, b);
+      }
+      p.walls.push({ id, type, a: { ...a }, b: { ...b }, openings: [] });
+    });
+    return id;
+  }
+
+  function addRectangle(a, b) {
+    const x0 = Math.min(a.x, b.x);
+    const x1 = Math.max(a.x, b.x);
+    const y0 = Math.min(a.y, b.y);
+    const y1 = Math.max(a.y, b.y);
+    if (x1 - x0 < 0.5 || y1 - y0 < 0.5) return;
+    const pts = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+    store.update((p) => {
+      pts.forEach((pt, i) => p.walls.push({ id: newId("w"), type: "exterior", a: pt, b: pts[(i + 1) % 4], openings: [] }));
+    });
+  }
+
+  function addOpening(kind, raw) {
+    const walls = store.project.walls;
+    let hit = null;
+    walls.forEach((w) => {
+      const { d, t } = projectOnSegment(raw, w.a, w.b);
+      if (d < tol(16) && (!hit || d < hit.d)) hit = { w, d, t };
+    });
+    if (!hit) {
+      flash("Tocá sobre un muro para ubicar la abertura.");
+      return;
+    }
+    const { w } = hit;
+    const L = wallLength(w);
+    const def = DEFAULT_OPENINGS[kind];
+    const width = Math.min(def.width, L - 0.3);
+    let offset = Math.round((hit.t * L - width / 2) / snapStep) * snapStep;
+    offset = Math.max(0.15, Math.min(L - width - 0.15, offset));
+    const clash = w.openings.some((o) => offset < o.offset + o.width + 0.1 && offset + width > o.offset - 0.1);
+    if (clash || width < 0.4) {
+      flash("No entra: se superpone con otra abertura o el muro es muy corto.");
+      return;
+    }
+    const id = newId("o");
+    store.update((p) => {
+      p.walls.find((x) => x.id === w.id).openings.push({ id, kind, offset, width, height: def.height, sill: def.sill });
+    });
+    setSelection({ type: "opening", wallId: w.id, openingId: id });
+  }
+
+  function deleteSelection() {
+    if (!selection) return;
+    const sel = selection;
+    store.update((p) => {
+      if (sel.type === "wall") p.walls = p.walls.filter((w) => w.id !== sel.wallId);
+      else {
+        const w = p.walls.find((x) => x.id === sel.wallId);
+        if (w) w.openings = w.openings.filter((o) => o.id !== sel.openingId);
+      }
+    });
+    setSelection(null);
+  }
+
+  // ---------- Hit test ----------
+  function hitTest(raw) {
+    const p = model();
+    for (const w of p.walls) {
+      const L = wallLength(w);
+      const { d, t } = projectOnSegment(raw, w.a, w.b);
+      if (d > Math.max(tol(10), WALL_THICKNESS)) continue;
+      const sPos = t * L;
+      const o = w.openings.find((op) => sPos >= op.offset && sPos <= op.offset + op.width);
+      if (o) return { type: "opening", wallId: w.id, openingId: o.id };
+    }
+    let best = null;
+    p.walls.forEach((w) => {
+      const { d } = projectOnSegment(raw, w.a, w.b);
+      if (d < Math.max(tol(10), WALL_THICKNESS) && (!best || d < best.d)) best = { d, wallId: w.id };
+    });
+    return best ? { type: "wall", wallId: best.wallId } : null;
+  }
+
+  function vertexAt(raw) {
+    let best = null;
+    model().walls.forEach((w) =>
+      [w.a, w.b].forEach((e) => {
+        const d = dist(raw, e);
+        if (d < tol(12) && (!best || d < best.d)) best = { d, key: pointKey(e), p: { ...e } };
+      })
+    );
+    return best;
+  }
+
+  // ---------- Selección ----------
+  function setSelection(sel) {
+    selection = sel;
+    render();
+    onSelectionChange?.(selection);
+  }
+
+  function setTool(next) {
+    tool = next;
+    chain = null;
+    rectStart = null;
+    typed = "";
+    svg.dataset.tool = tool;
+    render();
+    onToolChange?.(tool);
+  }
+
+  let flashTimer = null;
+  function flash(message) {
+    if (!status) return;
+    status.textContent = message;
+    status.classList.add("is-alert");
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      status.classList.remove("is-alert");
+      updateStatus();
+    }, 2600);
+  }
+
+  function updateStatus() {
+    if (!status || status.classList.contains("is-alert")) return;
+    const hints = {
+      select: "Tocá un muro o abertura para editarlo. Arrastrá los extremos para mover vértices.",
+      rect: "Arrastrá (o tocá dos esquinas) para crear un contorno rectangular.",
+      exterior: "Tocá para ir marcando muros exteriores. Escribí un largo y Enter para medidas exactas. Doble toque o Esc para terminar.",
+      interior: "Tocá para marcar tabiques interiores. Se enganchan a los muros existentes.",
+      door: "Tocá sobre un muro para agregar una puerta.",
+      window: "Tocá sobre un muro para agregar una ventana."
+    };
+    let text = hints[tool] ?? "";
+    if (chain && cursor) {
+      text = `Largo: ${fmt(dist(chain.last, cursor.p))} m${typed ? ` · escribiendo ${typed} m` : ""} · Enter confirma · Esc termina`;
+    } else if (rectStart && cursor) {
+      text = `Rectángulo ${fmt(Math.abs(cursor.p.x - rectStart.x))} × ${fmt(Math.abs(cursor.p.y - rectStart.y))} m`;
+    }
+    status.textContent = text;
+  }
+
+  // ---------- Eventos ----------
+  function onPointerDown(evt) {
+    svg.setPointerCapture(evt.pointerId);
+    pointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+    if (pointers.size === 2) {
+      const [p1, p2] = [...pointers.values()];
+      pinch = { d: Math.hypot(p1.x - p2.x, p1.y - p2.y), cx: (p1.x + p2.x) / 2, cy: (p1.y + p2.y) / 2, scale: view.scale, ox: view.ox, oy: view.oy };
+      drag = null;
+      return;
+    }
+    const raw = toModel(evt);
+    if (evt.button === 1 || evt.button === 2 || evt.altKey) {
+      drag = { kind: "pan", sx: evt.clientX, sy: evt.clientY, ox: view.ox, oy: view.oy };
+      return;
+    }
+    if (tool === "select") {
+      const vtx = vertexAt(raw);
+      if (vtx && selection?.type === "wall") {
+        drag = { kind: "vertex", key: vtx.key, origin: vtx.p, moved: false };
+        return;
+      }
+      const hit = hitTest(raw);
+      if (hit?.type === "opening") {
+        const w = store.project.walls.find((x) => x.id === hit.wallId);
+        const o = w.openings.find((x) => x.id === hit.openingId);
+        const sPos = dot(sub(raw, w.a), wallDir(w));
+        drag = { kind: "opening", wallId: w.id, openingId: o.id, grab: sPos - o.offset, moved: false };
+        setSelection(hit);
+        return;
+      }
+      if (vtx) {
+        drag = { kind: "vertex", key: vtx.key, origin: vtx.p, moved: false };
+        return;
+      }
+      setSelection(hit);
+      if (!hit) drag = { kind: "pan", sx: evt.clientX, sy: evt.clientY, ox: view.ox, oy: view.oy };
+      return;
+    }
+    if (tool === "door" || tool === "window") {
+      addOpening(tool, raw);
+      return;
+    }
+    const snapped = snapPoint(raw, { anchor: chain?.last ?? null, freeAxis: evt.shiftKey });
+    if (tool === "rect") {
+      if (!rectStart) {
+        rectStart = snapped.p;
+        drag = { kind: "rect", sx: evt.clientX, sy: evt.clientY };
+      } else {
+        addRectangle(rectStart, snapped.p);
+        rectStart = null;
+      }
+      render();
+      return;
+    }
+    if (tool === "exterior" || tool === "interior") {
+      handleChainPoint(snapped.p);
+    }
+  }
+
+  function handleChainPoint(point) {
+    if (!chain) {
+      chain = { type: tool, start: point, last: point };
+    } else {
+      if (dist(point, chain.last) < 0.05) return;
+      addWall(chain.type, chain.last, point);
+      const closes = dist(point, chain.start) < 1e-6;
+      chain = closes ? null : { ...chain, last: point };
+    }
+    typed = "";
+    render();
+  }
+
+  let lastTap = 0;
+  function onPointerUp(evt) {
+    pointers.delete(evt.pointerId);
+    if (pointers.size < 2) pinch = null;
+    const now = performance.now();
+    if ((tool === "exterior" || tool === "interior") && evt.pointerType !== "mouse" && now - lastTap < 320) {
+      chain = null;
+      render();
+    }
+    lastTap = now;
+    if (!drag) return;
+    const current = drag;
+    drag = null;
+    if (current.kind === "rect") {
+      const moved = Math.hypot(evt.clientX - current.sx, evt.clientY - current.sy) > 8;
+      if (moved && rectStart && cursor) {
+        addRectangle(rectStart, cursor.p);
+        rectStart = null;
+      }
+      render();
+      return;
+    }
+    if ((current.kind === "vertex" || current.kind === "opening") && draft) {
+      const finalProject = draft;
+      draft = null;
+      if (current.moved) store.replace(finalProject, "drag");
+      else render();
+    }
+  }
+
+  function onPointerMove(evt) {
+    if (pointers.has(evt.pointerId)) pointers.set(evt.pointerId, { x: evt.clientX, y: evt.clientY });
+    if (pinch && pointers.size === 2) {
+      const [p1, p2] = [...pointers.values()];
+      const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+      const cx = (p1.x + p2.x) / 2;
+      const cy = (p1.y + p2.y) / 2;
+      const rect = svg.getBoundingClientRect();
+      const k = Math.min(Math.max((pinch.scale * d) / pinch.d, 10), 400) / pinch.scale;
+      view.scale = pinch.scale * k;
+      view.ox = cx - rect.left - (pinch.cx - rect.left - pinch.ox) * k;
+      view.oy = cy - rect.top - (pinch.cy - rect.top - pinch.oy) * k;
+      render();
+      return;
+    }
+    const raw = toModel(evt);
+    if (drag?.kind === "pan") {
+      view.ox = drag.ox + evt.clientX - drag.sx;
+      view.oy = drag.oy + evt.clientY - drag.sy;
+      render();
+      return;
+    }
+    if (drag?.kind === "vertex") {
+      const snapped = snapPoint(raw, { excludeKey: drag.key });
+      const next = JSON.parse(JSON.stringify(store.project));
+      next.walls.forEach((w) => {
+        if (pointKey(w.a) === drag.key) w.a = { ...snapped.p };
+        if (pointKey(w.b) === drag.key) w.b = { ...snapped.p };
+      });
+      drag.moved = dist(snapped.p, drag.origin) > 1e-6;
+      draft = next;
+      cursor = snapped;
+      render();
+      return;
+    }
+    if (drag?.kind === "opening") {
+      const next = JSON.parse(JSON.stringify(store.project));
+      const w = next.walls.find((x) => x.id === drag.wallId);
+      const o = w.openings.find((x) => x.id === drag.openingId);
+      const L = wallLength(w);
+      let offset = Math.round((dot(sub(raw, w.a), wallDir(w)) - drag.grab) / snapStep) * snapStep;
+      offset = Math.max(0.1, Math.min(L - o.width - 0.1, offset));
+      drag.moved = drag.moved || Math.abs(offset - o.offset) > 1e-6;
+      o.offset = offset;
+      draft = next;
+      render();
+      return;
+    }
+    if (tool === "exterior" || tool === "interior" || tool === "rect") {
+      cursor = snapPoint(raw, { anchor: chain?.last ?? null, freeAxis: evt.shiftKey });
+      render();
+    } else if (cursor) {
+      cursor = null;
+      render();
+    }
+  }
+
+  function onWheel(evt) {
+    evt.preventDefault();
+    const rect = svg.getBoundingClientRect();
+    const mx = evt.clientX - rect.left;
+    const my = evt.clientY - rect.top;
+    zoomAt(mx, my, Math.exp(-evt.deltaY * 0.0015));
+  }
+
+  function zoomAt(mx, my, factor) {
+    const next = Math.min(Math.max(view.scale * factor, 10), 400);
+    const k = next / view.scale;
+    view.ox = mx - (mx - view.ox) * k;
+    view.oy = my - (my - view.oy) * k;
+    view.scale = next;
+    render();
+  }
+
+  function onKeyDown(evt) {
+    const target = evt.target;
+    if (target && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA")) return;
+    if (evt.key === "Escape") {
+      if (chain || rectStart || typed) {
+        chain = null;
+        rectStart = null;
+        typed = "";
+        render();
+      } else {
+        setSelection(null);
+      }
+      return;
+    }
+    if ((evt.key === "Delete" || evt.key === "Backspace") && selection && !chain) {
+      evt.preventDefault();
+      deleteSelection();
+      return;
+    }
+    if (chain) {
+      if (/^[0-9]$/.test(evt.key) || ((evt.key === "." || evt.key === ",") && !typed.includes("."))) {
+        typed += evt.key === "," ? "." : evt.key;
+        updateStatus();
+        return;
+      }
+      if (evt.key === "Backspace") {
+        typed = typed.slice(0, -1);
+        updateStatus();
+        return;
+      }
+      if (evt.key === "Enter") {
+        const len = Number(typed);
+        if (typed && len > 0 && cursor) {
+          const dir = normalize(sub(cursor.p, chain.last));
+          const r = (v) => Math.round(v * 1000) / 1000;
+          if (dir.x || dir.y) handleChainPoint({ x: r(chain.last.x + dir.x * len), y: r(chain.last.y + dir.y * len) });
+        } else {
+          chain = null;
+          render();
+        }
+      }
+    }
+  }
+
+  svg.addEventListener("pointerdown", onPointerDown);
+  svg.addEventListener("pointermove", onPointerMove);
+  svg.addEventListener("pointerup", onPointerUp);
+  svg.addEventListener("pointercancel", onPointerUp);
+  svg.addEventListener("pointerleave", () => {
+    if (!drag && cursor) {
+      cursor = null;
+      render();
+    }
+  });
+  svg.addEventListener("dblclick", () => {
+    chain = null;
+    render();
+  });
+  svg.addEventListener("wheel", onWheel, { passive: false });
+  svg.addEventListener("contextmenu", (e) => e.preventDefault());
+  window.addEventListener("keydown", onKeyDown);
+
+  // ---------- Dibujo ----------
+  function render() {
+    const project = model();
+    const rect = svg.getBoundingClientRect();
+    const W = rect.width || 800;
+    const H = rect.height || 600;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    const parts = [];
+
+    // grilla
+    const minX = Math.floor(-view.ox / view.scale);
+    const maxX = Math.ceil((W - view.ox) / view.scale);
+    const minY = Math.floor(-view.oy / view.scale);
+    const maxY = Math.ceil((H - view.oy) / view.scale);
+    const minorStep = view.scale > 45 ? 0.5 : view.scale > 20 ? 1 : 5;
+    for (let x = Math.floor(minX / minorStep) * minorStep; x <= maxX; x += minorStep) {
+      const sx = x * view.scale + view.ox;
+      const major = Math.abs(x - Math.round(x)) < 1e-9;
+      parts.push(`<line x1="${sx}" y1="0" x2="${sx}" y2="${H}" class="${major ? "grid-major" : "grid-minor"}"/>`);
+    }
+    for (let y = Math.floor(minY / minorStep) * minorStep; y <= maxY; y += minorStep) {
+      const sy = y * view.scale + view.oy;
+      const major = Math.abs(y - Math.round(y)) < 1e-9;
+      parts.push(`<line x1="0" y1="${sy}" x2="${W}" y2="${sy}" class="${major ? "grid-major" : "grid-minor"}"/>`);
+    }
+
+    // superficie cubierta
+    const footprint = gen?.footprint;
+    if (footprint && !draft) {
+      parts.push(`<polygon class="footprint" points="${footprint.map((p) => { const s = toScreen(p); return `${s.x},${s.y}`; }).join(" ")}"/>`);
+    }
+
+    const wt = Math.max(WALL_THICKNESS * view.scale, 4);
+    // muros
+    project.walls.forEach((w) => {
+      const a = toScreen(w.a);
+      const b = toScreen(w.b);
+      const selected = selection?.wallId === w.id && selection.type === "wall";
+      parts.push(
+        `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="wall wall--${w.type}${selected ? " is-selected" : ""}" stroke-width="${w.type === "interior" ? wt * 0.75 : wt}"/>`
+      );
+    });
+
+    // aberturas
+    project.walls.forEach((w) => {
+      const dir = wallDir(w);
+      const n = { x: -dir.y, y: dir.x };
+      w.openings.forEach((o) => {
+        const p1 = toScreen({ x: w.a.x + dir.x * o.offset, y: w.a.y + dir.y * o.offset });
+        const p2 = toScreen({ x: w.a.x + dir.x * (o.offset + o.width), y: w.a.y + dir.y * (o.offset + o.width) });
+        const selected = selection?.openingId === o.id;
+        parts.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="opening-gap" stroke-width="${wt + 2}"/>`);
+        const half = (wt / 2) * 0.55;
+        if (o.kind === "window") {
+          [-half, half].forEach((k) => {
+            parts.push(`<line x1="${p1.x + n.x * k}" y1="${p1.y + n.y * k}" x2="${p2.x + n.x * k}" y2="${p2.y + n.y * k}" class="opening opening--window${selected ? " is-selected" : ""}"/>`);
+          });
+          parts.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="opening opening--window${selected ? " is-selected" : ""}"/>`);
+        } else {
+          const r = o.width * view.scale;
+          const tip = { x: p1.x + n.x * r, y: p1.y + n.y * r };
+          parts.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${tip.x}" y2="${tip.y}" class="opening opening--door${selected ? " is-selected" : ""}"/>`);
+          const sweep = n.x * dir.y - n.y * dir.x > 0 ? 0 : 1;
+          parts.push(`<path d="M ${tip.x} ${tip.y} A ${r} ${r} 0 0 ${sweep} ${p2.x} ${p2.y}" class="opening-swing${selected ? " is-selected" : ""}"/>`);
+        }
+      });
+    });
+
+    // columnas generadas
+    if (gen && !draft) {
+      gen.members
+        .filter((m) => m.group === "Columnas")
+        .forEach((m) => {
+          const c = toScreen({ x: m.a[0], y: m.a[1] });
+          const s = Math.max(m.w * view.scale, 5);
+          parts.push(`<rect x="${c.x - s / 2}" y="${c.y - s / 2}" width="${s}" height="${s}" class="column"/>`);
+        });
+    }
+
+    // cotas
+    project.walls.forEach((w) => {
+      const L = wallLength(w);
+      const dir = wallDir(w);
+      let n = { x: -dir.y, y: dir.x };
+      const mid = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 };
+      if (footprint && w.type === "exterior") {
+        const probe = { x: mid.x + n.x * 0.2, y: mid.y + n.y * 0.2 };
+        if (pointInPolygon(probe, footprint)) n = { x: -n.x, y: -n.y };
+      }
+      const off = w.type === "exterior" ? 0.42 : 0.24;
+      const pos = toScreen({ x: mid.x + n.x * off, y: mid.y + n.y * off });
+      let angle = (Math.atan2(dir.y, dir.x) * 180) / Math.PI;
+      if (angle > 90) angle -= 180;
+      if (angle < -90) angle += 180;
+      if (view.scale > 18) {
+        parts.push(`<text x="${pos.x}" y="${pos.y}" class="dim${w.type === "interior" ? " dim--interior" : ""}" transform="rotate(${angle} ${pos.x} ${pos.y})">${fmt(L)}</text>`);
+      }
+    });
+
+    // manijas de vértices del muro seleccionado
+    if (selection?.type === "wall") {
+      const w = project.walls.find((x) => x.id === selection.wallId);
+      if (w) {
+        [w.a, w.b].forEach((e) => {
+          const s = toScreen(e);
+          parts.push(`<circle cx="${s.x}" cy="${s.y}" r="7" class="handle"/>`);
+        });
+      }
+    }
+
+    // trazado en curso
+    if (chain && cursor) {
+      const a = toScreen(chain.last);
+      const b = toScreen(cursor.p);
+      parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="wall wall--preview wall--${chain.type}" stroke-width="${wt}"/>`);
+      const len = dist(chain.last, cursor.p);
+      parts.push(`<text x="${(a.x + b.x) / 2}" y="${(a.y + b.y) / 2 - wt}" class="dim dim--live">${fmt(len)} m</text>`);
+      const s = toScreen(chain.start);
+      parts.push(`<circle cx="${s.x}" cy="${s.y}" r="6" class="chain-start"/>`);
+    }
+    if (rectStart && cursor) {
+      const a = toScreen(rectStart);
+      const b = toScreen(cursor.p);
+      parts.push(`<rect x="${Math.min(a.x, b.x)}" y="${Math.min(a.y, b.y)}" width="${Math.abs(b.x - a.x)}" height="${Math.abs(b.y - a.y)}" class="rect-preview" stroke-width="${wt}"/>`);
+    }
+    if (cursor && (tool === "exterior" || tool === "interior" || tool === "rect")) {
+      const c = toScreen(cursor.p);
+      parts.push(`<circle cx="${c.x}" cy="${c.y}" r="${cursor.kind === "grid" ? 3 : 6}" class="snap snap--${cursor.kind}"/>`);
+    }
+
+    svg.innerHTML = parts.join("");
+    updateStatus();
+  }
+
+  function fit() {
+    const rect = svg.getBoundingClientRect();
+    const pts = store.project.walls.flatMap((w) => [w.a, w.b]);
+    if (!pts.length || !rect.width) {
+      view.scale = 60;
+      view.ox = 60;
+      view.oy = 60;
+      render();
+      return;
+    }
+    const xs = pts.map((p) => p.x);
+    const ys = pts.map((p) => p.y);
+    const w = Math.max(...xs) - Math.min(...xs) + 2;
+    const h = Math.max(...ys) - Math.min(...ys) + 2;
+    view.scale = Math.min(Math.max(Math.min(rect.width / w, rect.height / h), 10), 200);
+    view.ox = rect.width / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * view.scale;
+    view.oy = rect.height / 2 - ((Math.max(...ys) + Math.min(...ys)) / 2) * view.scale;
+    render();
+  }
+
+  return {
+    render,
+    fit,
+    setTool,
+    setSelection,
+    deleteSelection,
+    getSelection: () => selection,
+    setGeneration(next) {
+      gen = next;
+      render();
+    },
+    setSnapStep(step) {
+      snapStep = step;
+    },
+    setOrtho(value) {
+      ortho = value;
+    },
+    zoom(factor) {
+      const rect = svg.getBoundingClientRect();
+      zoomAt(rect.width / 2, rect.height / 2, factor);
+    },
+    get tool() {
+      return tool;
+    }
+  };
+}
+
+export { NS };
