@@ -42,6 +42,7 @@ button, input, select { font: inherit; color: inherit; }
   flex-wrap: wrap;
 }
 .topbar__brand { display: flex; align-items: center; gap: 8px; }
+.topbar__logo { width: auto; height: 24px; display: block; }
 .topbar__badge {
   font-size: 0.72rem;
   font-weight: 700;
@@ -306,6 +307,7 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
 .seg.seg--waste { background: repeating-linear-gradient(45deg, #e5dfcf, #e5dfcf 4px, #d9d2bf 4px, #d9d2bf 8px); border-right: 0; }
 
 .disclaimer { font-size: 0.78rem; color: var(--muted); margin: 12px 0 0; }
+.bf { margin-top: 0; }
 
 .toast {
   position: fixed;

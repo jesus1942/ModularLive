@@ -711,7 +711,7 @@ tbody tr:last-child td {
 }
 
 .app-nav__logo {
-  width: 26px;
+  width: auto;
   height: 26px;
 }
 

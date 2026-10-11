@@ -1,4 +1,4 @@
-const CACHE_NAME = "modular-live-v9";
+const CACHE_NAME = "modular-live-v10";
 const APP_ASSETS = [
   "./",
   "./index.html",
@@ -8,6 +8,9 @@ const APP_ASSETS = [
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./assets/icon-maskable.svg",
+  "./assets/logo-isotipo.png",
+  "./assets/logo-completo-claro.png",
+  "./footer.css",
   "./cad.html",
   "./cad/cad.css",
   "./cad/app.js",
