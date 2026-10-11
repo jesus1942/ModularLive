@@ -30,7 +30,7 @@ La regla de oro del proyecto se mantiene: **lo que se ve en 3D es lo que se comp
 
 Módulo por defecto de la app: 3 × 6 m, techo plano liviano con alero de 0,25 m, sobre 6 dados de 0,40 × 0,40 × 0,80 m. Ubicación tipo: costa de Chubut.
 
-- La Guía de aplicación del CIRSOC 102-2005 usa para Telsen (Chubut) una velocidad básica de **V = 58 m/s**.
+- La Guía de aplicación del CIRSOC 102-2005 usa para Telsen (Chubut) una velocidad básica de **V = 58 m/s**. Esta cuenta usa la edición 2005; el motor tiene que usar la **CIRSOC 102-2025**, vigente desde el 22/01/2026 (ver la sección 2, punto 5). Con la edición nueva pueden cambiar las velocidades, los coeficientes y el factor del viento en las combinaciones, así que el resultado puede ser otro. La conclusión cualitativa (el viento manda) se verifica de nuevo con la edición vigente.
 - Presión dinámica: qz = 0,613 · Kz · Kzt · Kd · V² · I = 0,613 · 0,85 · 1 · 0,85 · 58² · 1 ≈ **1,49 kPa**. Valores usados: exposición C, z ≤ 4,5 m, Kd = 0,85 e I = 1.
 - Peso propio de la cubierta: aproximadamente 0,36 kPa (chapa, OSB, aislación, cabios y cielorraso).
 - Combinación 0,9D + 1,6W con GCp neto ≈ −1,08: **−2,25 kPa**. Sobre 22,75 m² de techo son **≈ 51 kN de levantamiento** factorizado.
@@ -73,7 +73,12 @@ Convenciones:
 2. **Nada falla en silencio.** Si un dato falta (suelo, viento, zona) se usa un valor conservador marcado como *supuesto*, y la interfaz lo muestra en todos los resultados que dependen de él.
 3. **Trazabilidad.** Cada número de la memoria se puede rastrear: entrada → fórmula → resultado, con la referencia al reglamento (por ejemplo "CIRSOC 301-2005, E.2"). Las tablas de coeficientes van en archivos de datos, con la fuente citada en un comentario.
 4. **Unidades SI internas** (N, m, Pa, kg). La interfaz muestra kN, kN/m², MPa, y **también kgf/tf entre paréntesis**, porque en obra se habla en kilos y toneladas.
-5. **Reglamentos vigentes en Argentina** (familia CIRSOC/INPRES). Si una parte del motor se apoya en la norma de origen (AISC, ACI, ASCE, AISI), citala y respetá las diferencias. Los coeficientes tienen que poder actualizarse sin tocar la lógica. Está en discusión pública el proyecto CIRSOC 102-24 y hay mapas sísmicos nuevos en revisión: **dejá todo parametrizado**.
+5. **Reglamentos vigentes en Argentina** (familia CIRSOC/INPRES). La **Resolución SOP 11/2026** (Boletín Oficial 21/01/2026, vigente desde el 22/01/2026) puso en vigencia **CIRSOC 101-2025** (cargas), **CIRSOC 102-2025** (viento), **CIRSOC 200-2024** (tecnología del hormigón) y **CIRSOC 201-2025** (estructuras de hormigón), e invita a provincias y municipios a adherir, tanto para obra pública como privada.
+   - Usá esas ediciones por defecto, con un dato `engineering.codeEdition` por jurisdicción. Si el municipio todavía exige las ediciones 2005, se elige "2005" y la memoria lo dice.
+   - Las demás partes (CIRSOC 104 nieve, 301/302/303 acero, 601 madera, INPRES-CIRSOC 103 sismo) se usan en la edición vigente que publique INTI-CIRSOC; verificá en el sitio de INTI si hubo actualización.
+   - Las fórmulas y coeficientes de este documento son orientativos: **lo que manda es el texto del reglamento vigente**. Leelo y citá artículo por artículo.
+   - Si una parte del motor se apoya en la norma de origen (AISC, ACI, ASCE, AISI), citala y respetá las diferencias.
+   - Los coeficientes tienen que poder actualizarse sin tocar la lógica, y hay mapas sísmicos nuevos en revisión: **dejá todo parametrizado**.
 6. **Determinismo.** El mismo proyecto da siempre el mismo resultado, sin aleatoriedad en el dimensionado.
 7. **No romper lo existente.** Los 19 tests actuales siguen pasando. Las cantidades del módulo 3 × 6 por defecto, verificadas a mano, solo cambian si cambia el dimensionado, y en ese caso se documenta en el test por qué.
 
@@ -135,6 +140,7 @@ project ──► generator (piezas con perfiles elegidos) ──► analytical-
 ```js
 engineering: {
   mode: "auto" | "verify",          // auto: dimensiona; verify: verifica las secciones elegidas
+  codeEdition: "2025",              // "2025" (Res. SOP 11/2026) o "2005" si el municipio no adhirió
   location: {
     preset: "puerto-madryn",        // o "manual"
     V: 58,                          // m/s, velocidad básica CIRSOC 102 (ver nota)
@@ -163,7 +169,7 @@ engineering: {
 }
 ```
 
-- **Tabla de localidades** (`data/locations.js`): arrancar por Chubut (Puerto Madryn, Trelew, Rawson, Comodoro Rivadavia, Esquel) y las capitales, con V tomada del **mapa de la Figura 1.A del CIRSOC 102-2005**, nieve del CIRSOC 104 y zona del INPRES-CIRSOC 103. Cada valor con su fuente en comentario. Si un valor no se pudo confirmar, el preset lo marca como `"a confirmar"` y la interfaz lo muestra. Referencia confirmada: la Guía CIRSOC 102-2005 usa **58 m/s para Telsen (Chubut)**. Para Puerto Madryn leé el valor del mapa; no lo inventes.
+- **Tabla de localidades** (`data/locations.js`): arrancar por Chubut (Puerto Madryn, Trelew, Rawson, Comodoro Rivadavia, Esquel) y las capitales, con V tomada del **mapa de velocidades del CIRSOC 102-2025** (y, para la edición 2005, de su Figura 1.A), nieve del CIRSOC 104 y zona del INPRES-CIRSOC 103. Cada valor con su fuente en comentario. Si un valor no se pudo confirmar, el preset lo marca como `"a confirmar"` y la interfaz lo muestra. Referencia confirmada: la Guía CIRSOC 102-2005 usa **58 m/s para Telsen (Chubut)**. Para Puerto Madryn leé el valor del mapa; no lo inventes.
 - **Valores por defecto conservadores**: si el usuario no carga suelo, usar 100 kPa como *supuesto* y advertir "Requiere estudio de suelos".
 
 ---
@@ -194,19 +200,19 @@ El peso propio **se calcula del modelo**, no se supone:
 - **Hormigón armado**: 24 kN/m³. **Acero**: 78,5 kN/m³.
 - **Instalaciones y cargas permanentes extra** (tanque de agua, termotanque, equipos): el usuario puede ubicar **cargas puntuales en planta**, por ejemplo un tanque de 1000 l sobre el techo ≈ 10,5 kN.
 
-### 5.2 Sobrecargas de uso (L, Lr) — CIRSOC 101-2005
+### 5.2 Sobrecargas de uso (L, Lr) — CIRSOC 101-2025
 
-- Tabla por uso en `data/reglamentos.js`: vivienda, oficina, depósito liviano, balcón/terraza accesible, escaleras. Sacala del CIRSOC 101-2005 (Tabla 4.1) y citá la fila.
+- Tabla por uso en `data/reglamentos.js`: vivienda, oficina, depósito liviano, balcón/terraza accesible, escaleras. Sacala del CIRSOC 101-2025 (tabla de sobrecargas mínimas) y citá la fila.
 - Techos inaccesibles: Lr con las reducciones por área tributaria y pendiente del CIRSOC 101.
 - Reducción de sobrecarga por área tributaria para columnas y vigas grandes, solo donde el reglamento la permite.
 
-### 5.3 Nieve (S) — CIRSOC 104-2005
+### 5.3 Nieve (S) — CIRSOC 104 (edición vigente)
 
 - S = 0,7 · Ce · Ct · I · pg, con el factor de pendiente Cs para techos inclinados y la acumulación junto a muros de niveles superiores. Esto último es importante: **la terraza de un nivel más bajo pegada al muro del nivel de arriba junta nieve**.
 
-### 5.4 Viento (W) — CIRSOC 102-2005
+### 5.4 Viento (W) — CIRSOC 102-2025
 
-Implementá el **procedimiento analítico** con estos pasos:
+Implementá el **procedimiento analítico de la edición 2025**. Los pasos siguientes describen la estructura del método de la edición 2005: confirmá en el texto 2025 cada fórmula, tabla y factor (velocidad básica, Kd, Kz, factor de importancia o de categoría de riesgo, coeficientes de presión). Si la edición 2025 cambió el criterio de velocidades, cambia también el factor de W en las combinaciones (5.6):
 
 1. qz = 0,613 · Kz · Kzt · Kd · V² · I (N/m²); Kd = 0,85 para edificios; I según la categoría (II → 1,00); Kz según la tabla de exposición y la altura.
 2. **Sistema principal (SPRFV)**: coeficientes de edificio bajo para presiones externas por zonas de fachada y cubierta. Incluí presión interna GCpi = ±0,18 para edificios cerrados, o ±0,55 si una fachada tiene aberturas dominantes; evaluá esto a partir de las ventanas y puertas del modelo. Evaluá **dos direcciones ortogonales × dos sentidos** y los casos de torsión del reglamento.
@@ -220,7 +226,9 @@ Implementá el **procedimiento analítico** con estos pasos:
 - **Método estático equivalente**: corte basal V0 = C · W, distribuido en altura proporcional a W·h. Con diafragma rígido se reparte según rigideces. Incluí la excentricidad accidental.
 - En zona 0 el motor lo informa y aplica lo mínimo que exija el reglamento para esa zona.
 
-### 5.6 Combinaciones — CIRSOC 301-2005 (estados límite)
+### 5.6 Combinaciones (estados límite)
+
+Tomá las combinaciones del reglamento vigente: CIRSOC 101-2025 si las incluye, o el reglamento de acero correspondiente, y **coherentes con la edición de viento** (5.4). Como referencia, estas son las de CIRSOC 301-2005 con viento CIRSOC 102-2005. Implementalas como datos, no como código fijo.
 
 Resistencia:
 
@@ -353,7 +361,7 @@ El anclaje correcto **depende de las solicitaciones reales y de la posición de 
 ### 8.2 Bulones de anclaje
 
 - Tracción, corte e interacción en el acero del bulón.
-- **Hormigón (CIRSOC 201-2005, Apéndice D / ACI 318 Cap. 17)**:
+- **Hormigón (CIRSOC 201-2025, capítulo de anclajes; antecedente CIRSOC 201-2005 Apéndice D / ACI 318 Cap. 17)**:
   - arrancamiento del cono: Nb = kc·√f'c·hef^1,5 (kc = 10 colado in situ, 7 post-instalado, unidades N-mm-MPa), afectado por ANc/ANco, que se reduce por **distancia al borde del dado**;
   - extracción por deslizamiento (pullout);
   - descascaramiento lateral;
@@ -475,7 +483,7 @@ Verificaciones geométricas que el motor tiene que hacer sí o sí:
 
 ### 11.3 Estructura de la escalera
 
-- **Cargas**: peso propio por materiales y sobrecarga de escaleras de CIRSOC 101-2005 (Tabla 4.1, fila de escaleras para el uso del edificio). Barandas y pasamanos con las cargas horizontales del CIRSOC 101 (carga lineal y concentrada en la parte superior; leer los valores del reglamento).
+- **Cargas**: peso propio por materiales y sobrecarga de escaleras de CIRSOC 101-2025 (fila de escaleras para el uso del edificio). Barandas y pasamanos con las cargas horizontales del CIRSOC 101 (carga lineal y concentrada en la parte superior; leer los valores del reglamento).
 - **Zancas**: vigas inclinadas apoyadas abajo (en la platea o en el bastidor y entrepiso del nivel inferior) y arriba (en la viga de borde del hueco). Tubo rectangular, UPN o planchuela, según la luz y la carga. Se verifican a flexión y corte con la luz horizontal proyectada y carga por m² de planta, y a flecha L/300.
 - **Escalones**: chapa plegada (espesor por flexión entre zancas), madera (CIRSOC 601) o fenólico. Fijación con ángulos soldados o abulonados.
 - **Descansos**: losa liviana sobre bastidor de tubos, apoyada en muro o en columnas propias. Si apoya en un muro, ese muro recibe la reacción (camino de cargas).
@@ -571,7 +579,7 @@ Tests en `cad/engineering/*.test.js` con `node --test`, cada uno comparando cont
 | Solver 3D: misma estructura rotada 90° en planta | Mismos esfuerzos y desplazamientos rotados |
 | Equilibrio, cualquier modelo y combinación | Σ reacciones = Σ cargas (error relativo < 1e-6) |
 | Barras de solo tracción en cruz | El tensor comprimido queda inactivo; la estructura queda estable |
-| Viento: V = 58 m/s, exposición C, z ≤ 4,5 m, Kd = 0,85, I = 1 | qz = 1490 Pa ± 1 % |
+| Viento con `codeEdition = "2005"`: V = 58 m/s, exposición C, z ≤ 4,5 m, Kd = 0,85, I = 1 | qz = 1490 Pa ± 1 %. Para la edición 2025, armar el caso de referencia con el ejemplo resuelto que publique el reglamento o su guía |
 | Levantamiento del módulo 3 × 6 por defecto con V = 58 m/s | Tracción neta en anclajes > 0, y el motor agranda la fundación o propone pilotes hasta cumplir |
 | Nivel superior en voladizo de 1,0 m | Aparece tracción en el apoyo trasero y se diseña su anclaje |
 | Columna de arriba a mitad de un bastidor | El bastidor pasa a viga de transferencia; si no cumple, se redimensiona o cambia de tipo |
@@ -607,7 +615,7 @@ Cada fase deja la app publicable y con tests verdes.
 | Fase | Contenido | Criterio de aceptación |
 | --- | --- | --- |
 | **0 · Base** | `units.js`, `data/materials.js`, claves estables de piezas, peso propio desde el modelo, panel "Ingeniería" con ubicación, suelo y materiales | Peso propio total del módulo por defecto mostrado y reproducible a mano |
-| **1 · Cargas** | L, Lr, S, W (CIRSOC 102), E (INPRES-CIRSOC 103) y combinaciones | Test de qz; presiones por zona visibles en el 3D sobre las superficies |
+| **1 · Cargas** | Pendiente que detectó la fase 0: agregar el **cielorraso bajo cubierta** (placa y su estructura) como superficie del modelo, en el cómputo y en el peso. Después: L, Lr, S, W (CIRSOC 102-2025, con opción 2005), E (INPRES-CIRSOC 103) y combinaciones como datos | Cielorraso en BOM y peso; caso de viento de referencia; presiones por zona visibles en el 3D sobre las superficies |
 | **2 · Análisis** | Modelo analítico, `frame3d.js`, cargas tributarias, Worker | Benchmarks de la sección 15 y equilibrio en todas las combinaciones |
 | **3 · Barras** | Verificaciones, grupos, dimensionado iterativo, tipo de viga, arriostramientos automáticos | Módulo por defecto dimensionado, con modo "Utilización" en el 3D |
 | **4 · Uniones y estabilidad** | Placas base, bulones con hormigón, uniones entre niveles, techo-muro, vuelco, levantamiento y deslizamiento | El caso patagónico de la sección 0 queda resuelto y explicado en la memoria |
@@ -645,7 +653,9 @@ Cada fase deja la app publicable y con tests verdes.
 
 ### Referencias de partida
 
-- CIRSOC 101-2005 (cargas permanentes y sobrecargas), CIRSOC 102-2005 y su Guía de aplicación (viento; proyecto CIRSOC 102-24 en discusión pública), CIRSOC 104-2005 (nieve y hielo), INPRES-CIRSOC 103 (sismo), CIRSOC 301-2005 (acero), CIRSOC 302-2005 (tubos), CIRSOC 303 (conformados en frío), CIRSOC 201-2005 (hormigón, Apéndice D anclajes), CIRSOC 601 (madera). Publicados por INTI-CIRSOC.
+- **Vigentes por Resolución SOP 11/2026**: CIRSOC 101-2025 (cargas), CIRSOC 102-2025 (viento), CIRSOC 200-2024 (tecnología del hormigón), CIRSOC 201-2025 (estructuras de hormigón, anclajes).
+- Resto de la familia, en la edición vigente según INTI-CIRSOC: CIRSOC 104 (nieve y hielo), INPRES-CIRSOC 103 (sismo), CIRSOC 301 (acero), 302 (tubos), 303 (conformados en frío), 601 (madera).
+- Antecedentes citados en este documento: ediciones 2005 y Guía de aplicación del CIRSOC 102-2005 (ejemplo de Telsen, V = 58 m/s).
 - AISC Design Guide 1 (placas base) y AISC 360 como respaldo de las fórmulas de CIRSOC 301/302.
 - Ley 24.314 y Decreto 914/97 (accesibilidad; escaleras Art. 21 A.1.4.2.1, rampas A.1.4.2.2, puertas A.1.3).
 - Código de Edificación del municipio donde se construye (Puerto Madryn u otro): escaleras, locales, iluminación, ventilación, barandas.

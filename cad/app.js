@@ -62,6 +62,12 @@ function download(filename, content, type) {
 
 const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "proyecto";
 
+/**
+ * Rechaza solo datos fuera de rango o ilegibles. El atributo step es una ayuda de las flechas:
+ * una medida como 2,62 m o un alero de 0,33 m es válida aunque no caiga en el paso de 0,05.
+ */
+const outOfRange = (el) => el.validity.badInput || el.validity.rangeUnderflow || el.validity.rangeOverflow;
+
 const getPath = (obj, path) => path.split(".").reduce((o, k) => o?.[k], obj);
 const setPath = (obj, path, value) => {
   const keys = path.split(".");
@@ -204,7 +210,7 @@ $("#settingsPanel").addEventListener("change", (e) => {
   const path = el.dataset.path;
   if (!path) return;
   let value = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
-  if (el.type === "number" && (!el.value.trim() || !el.checkValidity() || !Number.isFinite(value))) {
+  if (el.type === "number" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(value))) {
     toast("Ingresá un número válido dentro del rango indicado.");
     el.value = getPath(store.project, path) / Number(el.dataset.scale ?? 1);
     return;
@@ -546,7 +552,7 @@ $("#engineeringPanel").addEventListener("change", (e) => {
   const id = el.dataset.material;
   const field = el.dataset.materialField;
   if (!MATERIALS[id] || !["value", "source", "confirmed"].includes(field)) return;
-  if (field === "value" && (!el.value.trim() || !el.checkValidity() || !Number.isFinite(Number(el.value)))) {
+  if (field === "value" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(Number(el.value)))) {
     toast("Cargá un peso mayor que cero. El dato anterior se conserva.");
     el.value = store.project.engineering.materialOverrides[id]?.value ?? MATERIALS[id].value;
     return;
