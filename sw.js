@@ -1,4 +1,4 @@
-const CACHE_NAME = "modular-live-v13";
+const CACHE_NAME = "modular-live-v14";
 const APP_ASSETS = [
   "./",
   "./index.html",
@@ -26,6 +26,14 @@ const APP_ASSETS = [
   "./cad/bom.js",
   "./cad/plan-editor.js",
   "./cad/viewer3d.js",
+  "./cad/engineering/units.js",
+  "./cad/engineering/data/materials.js",
+  "./cad/engineering/data/locations.js",
+  "./cad/engineering/settings.js",
+  "./cad/engineering/keys.js",
+  "./cad/engineering/loads.js",
+  "./cad/engineering/engine.js",
+  "./cad/engineering/panel.js",
   "./vendor/three/three.module.min.js",
   "./vendor/three/OrbitControls.js"
 ];

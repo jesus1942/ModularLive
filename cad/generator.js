@@ -25,6 +25,8 @@ import {
 } from "./geometry.js";
 import { PROFILES, SYSTEMS } from "./catalog.js";
 import { doorLeaf, findFootprint, validateOpenings } from "./model.js";
+import { memberKey } from "./engineering/keys.js";
+import { surfaceLayers } from "./engineering/data/materials.js";
 
 const DECK_THICKNESS = 0.018;
 const MIN_FILL = 0.15; // relleno de hastial por debajo de esto se resuelve con calces
@@ -253,27 +255,27 @@ export function generate(project) {
         const right = o.offset + o.width;
         const bottom = floorTop + o.sill;
         const top = floorTop + o.sill + o.height;
-        [left - stud.b / 2, right + stud.b / 2].forEach((sp) => {
-          addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, studTop), studTop - studBottom, ex);
+        [left - stud.b / 2, right + stud.b / 2].forEach((sp, side) => {
+          addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, studTop), studTop - studBottom, { ...ex, identity: `${o.id}:jamb:${side}` });
         });
-        addMember("stud", "Dinteles y antepechos", "estructura", pt(left, top + stud.b / 2), pt(right, top + stud.b / 2), o.width, ex);
+        addMember("stud", "Dinteles y antepechos", "estructura", pt(left, top + stud.b / 2), pt(right, top + stud.b / 2), o.width, { ...ex, identity: `${o.id}:header` });
         if (o.kind === "window") {
-          addMember("stud", "Dinteles y antepechos", "estructura", pt(left, bottom - stud.b / 2), pt(right, bottom - stud.b / 2), o.width, ex);
+          addMember("stud", "Dinteles y antepechos", "estructura", pt(left, bottom - stud.b / 2), pt(right, bottom - stud.b / 2), o.width, { ...ex, identity: `${o.id}:sill` });
         }
-        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left + frame.b / 2, bottom), pt(left + frame.b / 2, top), o.height, ex);
-        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(right - frame.b / 2, bottom), pt(right - frame.b / 2, top), o.height, ex);
-        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, top - frame.b / 2), pt(right, top - frame.b / 2), o.width, ex);
+        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left + frame.b / 2, bottom), pt(left + frame.b / 2, top), o.height, { ...ex, identity: `${o.id}:frame:left` });
+        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(right - frame.b / 2, bottom), pt(right - frame.b / 2, top), o.height, { ...ex, identity: `${o.id}:frame:right` });
+        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, top - frame.b / 2), pt(right, top - frame.b / 2), o.width, { ...ex, identity: `${o.id}:frame:header` });
         if (o.kind === "window") {
-          addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, bottom + frame.b / 2), pt(right, bottom + frame.b / 2), o.width, ex);
+          addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, bottom + frame.b / 2), pt(right, bottom + frame.b / 2), o.width, { ...ex, identity: `${o.id}:frame:sill` });
         }
         distributePositions(left, right, s.wallSpacing)
           .slice(1, -1)
           .forEach((sp) => {
             const upperFrom = top + stud.b;
-            if (studTop - upperFrom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, upperFrom), pt(sp, studTop), studTop - upperFrom, ex);
+            if (studTop - upperFrom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, upperFrom), pt(sp, studTop), studTop - upperFrom, { ...ex, identity: `${o.id}:infill:upper:${round(sp, 6)}` });
             if (o.kind === "window") {
               const lowerTo = bottom - stud.b;
-              if (lowerTo - studBottom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, lowerTo), lowerTo - studBottom, ex);
+              if (lowerTo - studBottom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, lowerTo), lowerTo - studBottom, { ...ex, identity: `${o.id}:infill:lower:${round(sp, 6)}` });
             }
           });
         if (o.kind === "door") {
@@ -285,7 +287,7 @@ export function generate(project) {
           const w = o.width - 0.04;
           const e = { x: h.x + d.x * w, y: h.y + d.y * w };
           surfaces.push({
-            ...lv,
+            ...lv, wallId: wall.id, openingId: o.id,
             layer: "aberturas",
             material: "puerta",
             points: [[h.x, h.y, bottom], [e.x, e.y, bottom], [e.x, e.y, top - 0.01], [h.x, h.y, top - 0.01]],
@@ -293,7 +295,7 @@ export function generate(project) {
             area: o.width * o.height
           });
         } else {
-          surfaces.push({ ...lv, layer: "aberturas", material: "vidrio", points: [pt(left, bottom), pt(right, bottom), pt(right, top), pt(left, top)], holes: [], area: o.width * o.height });
+          surfaces.push({ ...lv, wallId: wall.id, openingId: o.id, layer: "aberturas", material: "vidrio", points: [pt(left, bottom), pt(right, bottom), pt(right, top), pt(left, top)], holes: [], area: o.width * o.height });
         }
       });
     };
@@ -378,10 +380,10 @@ export function generate(project) {
       const topZ = (sp) => Math.max(roofUnderside(pointOnWall(wall, sp)), zTop);
       const extOutline = [extPt(0, elev), extPt(L, elev), ...[...bps].reverse().map((sp) => extPt(sp, topZ(sp)))];
       const extArea = area3D(extOutline) - openingArea(wall);
-      surfaces.push({ ...lv, layer: "cerramientos", material: "exterior", points: extOutline, holes: openingHoles(wall, extPt), area: extArea });
+      surfaces.push({ ...lv, wallId: wall.id, layer: "cerramientos", material: "exterior", points: extOutline, holes: openingHoles(wall, extPt), area: extArea });
       const intArea = L * height - openingArea(wall);
       surfaces.push({
-        ...lv,
+        ...lv, wallId: wall.id, coreArea_m2: intArea,
         layer: "cerramientos",
         material: "interior",
         points: [intPt(0, floorTop), intPt(L, floorTop), intPt(L, zTop), intPt(0, zTop)],
@@ -403,10 +405,10 @@ export function generate(project) {
       const doorSpans = wall.openings.filter((o) => o.kind === "door").map((o) => [o.offset, o.offset + o.width]).sort((a, b) => a[0] - b[0]);
       let cursor = 0;
       [...doorSpans, [L, L]].forEach(([a, b]) => {
-        if (a - cursor > 0.05) addMember("track", "Soleras", "estructura", pt(cursor, floorTop + track.b / 2), pt(a, floorTop + track.b / 2), a - cursor, ex);
+        if (a - cursor > 0.05) addMember("track", "Soleras", "estructura", pt(cursor, floorTop + track.b / 2), pt(a, floorTop + track.b / 2), a - cursor, { ...ex, identity: `bottom:${round(cursor, 6)}..${round(a, 6)}` });
         cursor = b;
       });
-      addMember("track", "Soleras", "estructura", pt(0, zTop - track.b / 2), pt(L, zTop - track.b / 2), L, ex);
+      addMember("track", "Soleras", "estructura", pt(0, zTop - track.b / 2), pt(L, zTop - track.b / 2), L, { ...ex, identity: "top" });
       distributePositions(0, L, s.wallSpacing)
         .filter((sp) => !insideOpening(wall, sp, stud.b * 1.5))
         .forEach((sp) => {
@@ -415,9 +417,9 @@ export function generate(project) {
         });
       buildOpenings(wall, studBottom, studTop);
       const area = L * height - openingArea(wall);
-      [wallFrameAt(wall, 0.065), wallFrameAt(wall, -0.065)].forEach((toPt) => {
+      [wallFrameAt(wall, 0.065), wallFrameAt(wall, -0.065)].forEach((toPt, face) => {
         surfaces.push({
-          ...lv,
+          ...lv, wallId: wall.id, face, coreArea_m2: face === 0 && s.interiorWallInsulation ? area : 0,
           layer: "cerramientos",
           material: "interior",
           points: [toPt(0, floorTop), toPt(L, floorTop), toPt(L, zTop), toPt(0, zTop)],
@@ -511,11 +513,14 @@ export function generate(project) {
           project.roof.type === "dos_aguas"
             ? [clipPolygonHalfPlane(roofOutline, spanAxis, umid, "below"), clipPolygonHalfPlane(roofOutline, spanAxis, umid, "above")].filter((pl) => pl.length >= 3)
             : [roofOutline];
-        planes.forEach((plane) => {
+        planes.forEach((plane, planeIndex) => {
           const pts = plane.map((p) => [p.x, p.y, roofUnderside(p) + rafter.h]);
           const a = area3D(pts);
           totals.roofArea += a;
-          surfaces.push({ ...lv, layer: "cubierta", material: "cubierta", points: pts, holes: [], area: a });
+          const covered = project.roof.type === "dos_aguas"
+            ? clipPolygonHalfPlane(footprint, spanAxis, umid, planeIndex === 0 ? "below" : "above")
+            : footprint;
+          surfaces.push({ ...lv, layer: "cubierta", material: "cubierta", points: pts, holes: [], area: a, coveredArea_m2: Math.abs(polygonArea(covered)) });
         });
         totals.roofPlanArea += Math.abs(polygonArea(roofOutline));
         totals.roofCoveredArea += area;
@@ -551,7 +556,7 @@ export function generate(project) {
           }
           const a = (r.x1 - r.x0) * (r.y1 - r.y0);
           const z = zTop + rafter.h;
-          surfaces.push({ ...lv, layer: "cubierta", material: "cubierta", points: [[r.x0, r.y0, z], [r.x1, r.y0, z], [r.x1, r.y1, z], [r.x0, r.y1, z]], holes: [], area: a });
+          surfaces.push({ ...lv, layer: "cubierta", material: "cubierta", points: [[r.x0, r.y0, z], [r.x1, r.y0, z], [r.x1, r.y1, z], [r.x0, r.y1, z]], holes: [], area: a, coveredArea_m2: a });
           totals.roofArea += a;
           totals.roofPlanArea += a;
           totals.roofCoveredArea += a;
@@ -649,6 +654,20 @@ export function generate(project) {
   } else {
     warnings.push("Sin contorno exterior cerrado en la planta baja no se calculan piso, techo ni fundación.");
   }
+
+  // Identidades y paquetes del mismo modelo que alimenta visor, peso y cómputo.
+  members.forEach((m) => { m.key = memberKey(m, project.levels[m.level], levelsOut[m.level]); });
+  surfaces.forEach((sf) => {
+    const center = sf.points[0]?.slice(0, 2).map((v) => round(v, 6)).join(",") ?? "empty";
+    sf.key = `L${project.levels[sf.level].id}:surface:${sf.material}:${sf.wallId ?? "grid"}:${sf.openingId ?? sf.face ?? center}`;
+    sf.packageLabel = sf.material === "piso" ? (sf.level === 0 ? "Piso" : "Entrepiso")
+      : sf.material === "cubierta" ? "Techo" : sf.layer === "aberturas" ? "Aberturas" : "Muros";
+    sf.layers = surfaceLayers(project, sf);
+  });
+  solids.forEach((solid) => {
+    const point = solid.a ?? solid.center ?? [solid.polygon?.[0]?.x, solid.polygon?.[0]?.y];
+    solid.key = `L${project.levels[solid.level].id}:foundation:${solid.shape}:${point.map((v) => round(v, 6)).join(",")}`;
+  });
 
   return {
     members,

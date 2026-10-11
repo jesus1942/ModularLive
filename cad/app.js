@@ -6,6 +6,9 @@ import { bomToCsv, computeBom, cutListToCsv } from "./bom.js";
 import { copyContour, createDefaultProject, createLevel, defaultSwing, doorLeaf, levelName, newId } from "./model.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
 import { pointKey, wallDir, wallLength } from "./geometry.js";
+import { runEngineering } from "./engineering/engine.js";
+import { engineeringInputsHtml, engineeringPrintHtml, engineeringResultHtml, engineeringSummaryHtml } from "./engineering/panel.js";
+import { MATERIALS } from "./engineering/data/materials.js";
 
 const PRICES_KEY = "modularlive_prices"; // compartido con la calculadora rápida
 const $ = (sel) => document.querySelector(sel);
@@ -13,6 +16,7 @@ const $ = (sel) => document.querySelector(sel);
 const store = createStore();
 let gen = null;
 let bom = null;
+let engineering = null;
 
 // ---------- utilidades ----------
 const fmtNum = (v, d = 2) => Number(v).toLocaleString("es-AR", { maximumFractionDigits: d, minimumFractionDigits: 0 });
@@ -57,6 +61,12 @@ function download(filename, content, type) {
 }
 
 const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "proyecto";
+
+/**
+ * Rechaza solo datos fuera de rango o ilegibles. El atributo step es una ayuda de las flechas:
+ * una medida como 2,62 m o un alero de 0,33 m es válida aunque no caiga en el paso de 0,05.
+ */
+const outOfRange = (el) => el.validity.badInput || el.validity.rangeUnderflow || el.validity.rangeOverflow;
 
 const getPath = (obj, path) => path.split(".").reduce((o, k) => o?.[k], obj);
 const setPath = (obj, path, value) => {
@@ -122,6 +132,7 @@ function regenerate() {
   if (editor.level > project.levels.length - 1) editor.setLevel(project.levels.length - 1);
   gen = generate(project);
   bom = computeBom(project, gen);
+  engineering = runEngineering(project, gen);
   editor.setGeneration(gen);
   viewer?.build(gen);
   if (lastLevelCount !== null && lastLevelCount !== project.levels.length) viewer?.frame();
@@ -132,6 +143,8 @@ function regenerate() {
   renderCuts();
   renderSelection();
   renderLevelBar();
+  $("#engineeringSummary").innerHTML = engineeringSummaryHtml(engineering);
+  $("#engineeringPanel").innerHTML = engineeringResultHtml(engineering, project);
   syncSettingsForm();
   $("#undoBtn").disabled = !store.canUndo();
   $("#redoBtn").disabled = !store.canRedo();
@@ -188,7 +201,7 @@ function syncSettingsForm() {
     if (document.activeElement === el) return;
     const value = getPath(store.project, el.dataset.path);
     if (el.type === "checkbox") el.checked = Boolean(value);
-    else el.value = value ?? "";
+    else el.value = typeof value === "number" ? value / Number(el.dataset.scale ?? 1) : value ?? "";
   });
 }
 
@@ -197,11 +210,26 @@ $("#settingsPanel").addEventListener("change", (e) => {
   const path = el.dataset.path;
   if (!path) return;
   let value = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
-  if (el.type === "number" && !Number.isFinite(value)) return;
+  if (el.type === "number" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(value))) {
+    toast("Ingresá un número válido dentro del rango indicado.");
+    el.value = getPath(store.project, path) / Number(el.dataset.scale ?? 1);
+    return;
+  }
+  if (el.type === "number") value *= Number(el.dataset.scale ?? 1);
   store.update((p) => {
     setPath(p, path, value);
     if (path === "foundation.type") p.foundation = { ...FOUNDATIONS[value].defaults, type: value };
     if (path === "roof.type") p.roof.slope = ROOF_TYPES[value].defaultSlope;
+    if (path.startsWith("engineering.")) {
+      const group = path.split(".")[1];
+      if (["location", "soil", "steel", "concrete"].includes(group) && !path.endsWith(".confirmed") && !path.endsWith(".certified")) {
+        if (group === "location" || group === "soil") p.engineering[group].confirmed = false;
+        else p.engineering[group].certified = false;
+      }
+      p.engineering.inputIssues = p.engineering.inputIssues.filter((message) => !message.includes(path));
+      // Reconocer un preset no inventa datos locales ni elimina el escenario ingresado.
+      if (path === "engineering.location.preset") p.engineering.location.source = "";
+    }
   });
 });
 
@@ -445,7 +473,7 @@ function renderMetrics() {
   const items = [
     ["Sup. cubierta", `${fmtNum(s.coveredArea)} m²${s.levels > 1 ? ` · ${s.levels} niveles` : ""}`],
     ["Cubierta", `${fmtNum(s.roofArea)} m²`],
-    ["Acero estructural", `${fmtNum(s.steelKg, 0)} kg`],
+    ["Acero a comprar (barras)", `${fmtNum(s.steelKg, 0)} kg`],
     ["Barras de perfil", fmtNum(s.structuralBars, 0)],
     ["Hormigón", `${fmtNum(s.concrete)} m³`],
     ["Piezas", fmtNum(s.pieces, 0)]
@@ -508,13 +536,40 @@ function renderCuts() {
     .join("");
 }
 
-document.querySelectorAll("[data-tab]").forEach((tab) =>
-  tab.addEventListener("click", () => {
-    document.querySelectorAll("[data-tab]").forEach((t) => t.classList.toggle("is-active", t === tab));
-    $("#materialsPanel").hidden = tab.dataset.tab !== "materials";
-    $("#cutsPanel").hidden = tab.dataset.tab !== "cuts";
-  })
-);
+/** Cambia la pestaña sin descartar el resultado ni alterar el modelo de obra. */
+function showTab(name) {
+  document.querySelectorAll("[data-tab]").forEach((t) => t.classList.toggle("is-active", t.dataset.tab === name));
+  ["materials", "cuts", "engineering"].forEach((id) => { $(`#${id}Panel`).hidden = id !== name; });
+}
+document.querySelectorAll("[data-tab]").forEach((tab) => tab.addEventListener("click", () => showTab(tab.dataset.tab)));
+$("#engineeringSummary").addEventListener("click", (e) => {
+  if (!e.target.closest("[data-show-engineering]")) return;
+  showTab("engineering");
+  $("#engineeringPanel").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+$("#engineeringPanel").addEventListener("change", (e) => {
+  const el = e.target;
+  const id = el.dataset.material;
+  const field = el.dataset.materialField;
+  if (!MATERIALS[id] || !["value", "source", "confirmed"].includes(field)) return;
+  if (field === "value" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(Number(el.value)))) {
+    toast("Cargá un peso mayor que cero. El dato anterior se conserva.");
+    el.value = store.project.engineering.materialOverrides[id]?.value ?? MATERIALS[id].value;
+    return;
+  }
+  store.update((p) => {
+    const override = p.engineering.materialOverrides[id] ??= { value: MATERIALS[id].value, source: "", confirmed: false };
+    override[field] = field === "confirmed" ? el.checked : field === "value" ? Number(el.value) : el.value.trim();
+    if (field !== "confirmed") override.confirmed = false;
+  });
+});
+$("#engineeringPanel").addEventListener("click", (e) => {
+  const id = e.target.closest("[data-material-reset]")?.dataset.materialReset;
+  if (MATERIALS[id]) store.update((p) => { delete p.engineering.materialOverrides[id]; });
+  if (e.target.closest("#engineeringJsonBtn")) {
+    download(`${slug(store.project.name)}-peso-propio.json`, JSON.stringify({ project: store.project, result: engineering }, null, 2), "application/json");
+  }
+});
 
 // ---------- barra superior ----------
 document.querySelectorAll("[data-tool]").forEach((b) => b.addEventListener("click", () => editor.setTool(b.dataset.tool)));
@@ -585,7 +640,8 @@ $("#printBtn").addEventListener("click", () => {
   $("#printSheet").innerHTML = `
     <h1>${escapeHtml(p.name)}</h1>
     <p>${new Date().toLocaleDateString("es-AR")} · ${fmtNum(bom.summary.footprintArea)} m² cubiertos · ${FOUNDATIONS[p.foundation.type].label} · techo ${ROOF_TYPES[p.roof.type].label.toLowerCase()}</p>
-    <div class="print-views">${img}<div class="print-plan">${plan}</div></div>`;
+    <div class="print-views">${img}<div class="print-plan">${plan}</div></div>
+    ${engineeringPrintHtml(engineering, p)}`;
   window.print();
 });
 
@@ -612,6 +668,7 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("resize", () => editor.render());
 
 // ---------- inicio ----------
+$("#engineeringInputs").innerHTML = engineeringInputsHtml();
 renderLayerToggles();
 editor.setTool("select");
 regenerate();

@@ -12,6 +12,7 @@ import {
 } from "./catalog.js";
 import { round } from "./geometry.js";
 import { doorLeaf } from "./model.js";
+import { resolveMaterial } from "./engineering/data/materials.js";
 
 const n = (v, d = 2) => String(round(v, d)).replace(".", ",");
 
@@ -106,7 +107,7 @@ export function computeBom(project, gen) {
   const byProfile = new Map();
   gen.members.forEach((m) => {
     if (!byProfile.has(m.profileId)) byProfile.set(m.profileId, []);
-    byProfile.get(m.profileId).push({ length: m.cut, group: m.group, id: m.id });
+    byProfile.get(m.profileId).push({ length: m.cut, group: m.group, id: m.id, key: m.key });
   });
   let steelKg = 0;
   let paintArea = 0;
@@ -114,7 +115,7 @@ export function computeBom(project, gen) {
     const profile = PROFILES[profileId];
     const stock = s.stockLength || profile.stock;
     const result = optimizeCuts(pieces, stock, kerf);
-    const kgPerM = profileKgPerMeter(profile);
+    const kgPerM = profileKgPerMeter(profile, resolveMaterial("steel", project.engineering?.materialOverrides).value);
     const kg = result.barCount * stock * kgPerM;
     steelKg += kg;
     paintArea += result.totalLength * profilePaintAreaPerMeter(profile);
