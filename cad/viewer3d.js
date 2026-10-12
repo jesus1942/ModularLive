@@ -8,6 +8,7 @@ export const LAYERS = [
   { id: "piso", label: "Piso" },
   { id: "cerramientos", label: "Cerramientos" },
   { id: "cubierta", label: "Cubierta" },
+  { id: "cielorraso", label: "Cielorraso" },
   { id: "aberturas", label: "Aberturas" }
 ];
 
@@ -20,13 +21,16 @@ const ROLE_COLORS = {
   floorJoist: 0x8a6d4f,
   rafter: 0x9a4f2a,
   roofEdge: 0x7d3d1f,
-  ridge: 0x6e2f16
+  ridge: 0x6e2f16,
+  ceilingJoist: 0x555555,
+  ceilingTrack: 0x333333
 };
 
 const SURFACE_STYLES = {
   exterior: { color: 0xc9d3cd, opacity: 0.92 },
   interior: { color: 0xf2eee5, opacity: 0.95 },
   cubierta: { color: 0x8c979c, opacity: 0.9 },
+  cielorraso: { color: 0xe8e8e8, opacity: .95 },
   piso: { color: 0xc8a676, opacity: 1 },
   platea: { color: 0xb9b4a8, opacity: 1 },
   vidrio: { color: 0x9cc7e0, opacity: 0.45 },
@@ -72,6 +76,20 @@ export function createViewer(container) {
   });
 
   const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const windGroup = new THREE.Group();
+  scene.add(windGroup);
+  const pointLoadGroup = new THREE.Group();
+  scene.add(pointLoadGroup);
+  const pointer = new THREE.Vector2(), raycaster = new THREE.Raycaster();
+  renderer.domElement.addEventListener("pointermove", (event) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.set((event.clientX - rect.left) / rect.width * 2 - 1, -(event.clientY - rect.top) / rect.height * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObjects(windGroup.children, false).find((h) => h.object.visible && h.object.userData.pressureFaces);
+    const p = hit?.object.userData.pressureFaces?.[hit.faceIndex];
+    const tooltip = document.querySelector("#windTooltip");
+    if (tooltip) tooltip.textContent = p ? `Zona ${p.zone} · ${(p.pressure_Pa / 1000).toLocaleString("es-AR", { maximumFractionDigits: 3 })} kN/m² · nivel ${p.level + 1}` : "";
+  });
   const materialCache = new Map();
   const getMaterial = (key, factory) => {
     if (!materialCache.has(key)) materialCache.set(key, factory());
@@ -88,6 +106,7 @@ export function createViewer(container) {
         child.visible = (child.userData.level ?? 0) <= maxLevel;
       })
     );
+    [windGroup, pointLoadGroup].forEach((g) => g.children.forEach((child) => { child.visible = (child.userData.level ?? 0) <= maxLevel; }));
   };
 
   function clearGroups() {
@@ -215,7 +234,7 @@ export function createViewer(container) {
       const mesh = orientedBox(m.a, m.b, m.w, m.h, m.nrm);
       mesh.material = getMaterial(`r-${m.role}`, () => new THREE.MeshLambertMaterial({ color: ROLE_COLORS[m.role] ?? 0x777777 }));
       mesh.userData = { member: m, level: m.level ?? 0 };
-      layerGroups.estructura.add(mesh);
+      (m.layer === "cielorraso" ? layerGroups.cielorraso : layerGroups.estructura).add(mesh);
       memberMeshes.push(mesh);
     });
     gen.surfaces.forEach((surface) => {
@@ -248,6 +267,70 @@ export function createViewer(container) {
 
   function setLayerVisible(id, visible) {
     if (layerGroups[id]) layerGroups[id].visible = visible;
+  }
+
+  /** Parches de presión reales y flechas normales; presión positiva hacia adentro, negativa afuera. */
+  function setWindPatches(patches, pointEntries = []) {
+    windGroup.traverse((object) => { if (object.geometry && object.geometry !== unitBox) object.geometry.dispose(); });
+    windGroup.clear();
+    const maxPressure = Math.max(1, ...patches.map((p) => Math.abs(p.pressure_Pa)));
+    const batches = new Map();
+    patches.forEach((p, i) => {
+      const offset = p.normal.map((v) => .025 * v);
+      const points = p.points.map((pt) => pt.map((v, j) => v + offset[j]));
+      const temporary = surfaceMesh({ ...p, material: "wind", holes: [], points });
+      const shade = p.pressure_Pa < 0 ? Math.round(105 - 70 * Math.abs(p.pressure_Pa) / maxPressure) : Math.round(245 - 45 * Math.abs(p.pressure_Pa) / maxPressure);
+      const color = new THREE.Color(shade * 0x010101);
+      if (!batches.has(p.level)) batches.set(p.level, { positions: [], colors: [], edges: [], faces: [] });
+      const batch = batches.get(p.level), position = temporary.geometry.attributes.position;
+      const indices = temporary.geometry.index.array;
+      for (let j = 0; j < indices.length; j += 1) {
+        const k = indices[j];
+        batch.positions.push(position.getX(k), position.getY(k), position.getZ(k));
+        batch.colors.push(color.r, color.g, color.b);
+        if (j % 3 === 0) batch.faces.push(p);
+      }
+      points.forEach((pt, j) => { const a = toV(pt), b = toV(points[(j + 1) % points.length]); batch.edges.push(a.x, a.y, a.z, b.x, b.y, b.z); });
+      temporary.geometry.dispose();
+      if (i % Math.max(1, Math.ceil(patches.length / 45)) === 0) {
+        const direction = toV(p.normal.map((v) => p.pressure_Pa < 0 ? v : -v)).normalize();
+        const center = toV(p.point_m.map((v, j) => v + offset[j]));
+        if (p.pressure_Pa > 0) center.addScaledVector(direction, -.4);
+        const arrow = new THREE.ArrowHelper(direction, center, .4, 0x111111, .10, .05);
+        arrow.userData.level = p.level; windGroup.add(arrow);
+      }
+    });
+    // Una malla por nivel, con color por vértice: cientos de parches no generan cientos de draw calls.
+    batches.forEach((batch, level) => {
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.Float32BufferAttribute(batch.positions, 3));
+      geometry.setAttribute("color", new THREE.Float32BufferAttribute(batch.colors, 3));
+      const mesh = new THREE.Mesh(geometry, getMaterial("wind-batch", () => new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, opacity: .88, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 })));
+      mesh.userData = { level, pressureFaces: batch.faces }; windGroup.add(mesh);
+      const edgesGeometry = new THREE.BufferGeometry();
+      edgesGeometry.setAttribute("position", new THREE.Float32BufferAttribute(batch.edges, 3));
+      const edge = new THREE.LineSegments(edgesGeometry, getMaterial("wind-edge", () => new THREE.LineBasicMaterial({ color: 0x888888, transparent: true, opacity: .5 })));
+      edge.userData.level = level; windGroup.add(edge);
+    });
+    pointEntries.forEach((entry) => {
+      const direction = toV(entry.force_N).normalize();
+      if (!direction.lengthSq()) return;
+      const arrow = new THREE.ArrowHelper(direction, toV(entry.point_m), .7, 0x111111, .14, .07);
+      arrow.userData.level = entry.level; windGroup.add(arrow);
+    });
+    applyLevelVisibility();
+  }
+
+  /** Marcadores de cargas permanentes manuales, en la posición que se usa para calcular D. */
+  function setPointLoads(entries) {
+    pointLoadGroup.traverse((object) => { if (object.geometry) object.geometry.dispose(); });
+    pointLoadGroup.clear();
+    entries.forEach((entry) => {
+      const origin = toV(entry.point_m); origin.y += .6;
+      const arrow = new THREE.ArrowHelper(new THREE.Vector3(0, -1, 0), origin, .55, 0x111111, .13, .07);
+      arrow.userData.level = entry.level; pointLoadGroup.add(arrow);
+    });
+    applyLevelVisibility();
   }
 
   function frame() {
@@ -289,6 +372,8 @@ export function createViewer(container) {
 
   return {
     build,
+    setWindPatches,
+    setPointLoads,
     frame,
     highlightWall,
     setLayerVisible,

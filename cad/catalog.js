@@ -8,6 +8,8 @@ const STEEL_DENSITY = 7850; // kg/m³
  * shape: "rhs" tubo rectangular, "c" perfil C, "u" perfil U.
  */
 export const PROFILES = {
+  // Estructura nominal del cielorraso: sección y apoyos pendientes de verificación en fase 3.
+  tubo_40x20x1_6: { label: "Tubo rectangular AC 40×20×1,6 mm (cielorraso)", shape: "rhs", b: 0.02, h: 0.04, t: 0.0016, stock: 6 },
   tubo_100x100x3_2: { label: "Tubo estructural AC 100×100×3.2 mm", shape: "rhs", b: 0.1, h: 0.1, t: 0.0032, stock: 6 },
   tubo_80x80x3_2: { label: "Tubo estructural AC 80×80×3.2 mm", shape: "rhs", b: 0.08, h: 0.08, t: 0.0032, stock: 6 },
   tubo_100x50x3_2: { label: "Tubo rectangular AC 100×50×3.2 mm", shape: "rhs", b: 0.05, h: 0.1, t: 0.0032, stock: 6 },
@@ -84,7 +86,9 @@ export const SYSTEMS = {
       openingFrame: "perfil_c_100x50x2",
       rafter: "tubo_100x50x3_2",
       roofEdge: "tubo_100x50x3_2",
-      ridge: "tubo_120x60x3_2"
+      ridge: "tubo_120x60x3_2",
+      ceilingJoist: "tubo_40x20x1_6",
+      ceilingTrack: "tubo_40x20x1_6"
     },
     mainFrameOptions: ["tubo_100x100x3_2", "tubo_80x80x3_2"],
     defaults: {

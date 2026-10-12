@@ -1,0 +1,116 @@
+import { bbox, polygonArea, pointInPolygon } from "../geometry.js";
+import { SNOW_IMPORTANCE, SOURCES } from "./data/reglamentos.js";
+import { areaCenter_m, clip3D, actionResultant } from "./load-geometry.js";
+
+// 104-2005 Fig.9: cotas superiores leídas del gráfico, redondeadas HACIA ARRIBA.
+// Se usa siguiente lu y siguiente pg, sin interpolar ni extrapolar: aproximación conservadora,
+// explícita en cada caso. No es la ecuación ASCE trasladada sin validar al reglamento argentino.
+const DRIFT_UPPER_m = { fetch_m: [7.5, 15, 30, 60, 120], pg_kPa: [0, 1, 2, 3, 4, 5],
+  heights: [[.30, .45, .60, .70, .75, .80], [.50, .70, .85, .95, 1.05, 1.10], [.75, 1.05, 1.25, 1.40, 1.45, 1.50], [1.05, 1.40, 1.65, 1.85, 1.95, 2.00], [1.45, 1.90, 2.25, 2.45, 2.60, 2.65]] };
+
+/** Nieve balanceada en Pa sobre proyección horizontal; incluye mínimo de baja pendiente. */
+export function balancedSnow({ pg_Pa, Ce, Ct, importance = "II", theta_deg, roofType, width_m, Cs = 1 }) {
+  const I = SNOW_IMPORTANCE[importance];
+  const basic_Pa = .7 * Ce * Ct * I * pg_Pa;
+  const lowSlope = roofType === "dos_aguas" ? theta_deg <= 21 / width_m + .5 : theta_deg < 15;
+  const minimum_Pa = lowSlope ? I * Math.min(pg_Pa, 1000) : 0;
+  const pf_Pa = Math.max(basic_Pa, minimum_Pa);
+  return { pressure_Pa: Cs * pf_Pa, pf_Pa, basic_Pa, minimum_Pa, pg_Pa, Ce, Ct, I, Cs, lowSlope,
+    reference: "104-05 §§3,3.4 y 4;ec.(1)/(2);Cs=1 sin reducción por pendiente" };
+}
+
+/** Cota superior de hd en m tomada de Fig.9; null fuera del dominio tabulado. */
+export function driftHeight_m(fetch_m, pg_Pa) {
+  if (pg_Pa <= 0) return { hd_m: 0, fetchUpper_m: 7.5, pgUpper_Pa: 0 };
+  const i = DRIFT_UPPER_m.fetch_m.findIndex((v) => v >= Math.max(7.5, fetch_m));
+  const j = DRIFT_UPPER_m.pg_kPa.findIndex((v) => v * 1000 >= pg_Pa);
+  return i < 0 || j < 0 ? null : { hd_m: DRIFT_UPPER_m.heights[i][j], fetchUpper_m: DRIFT_UPPER_m.fetch_m[i], pgUpper_Pa: DRIFT_UPPER_m.pg_kPa[j] * 1000 };
+}
+
+/** Acumulación triangular de §7.1: anchura y pico, incluyendo límite 8hc y corte en borde. */
+export function snowDrift({ upperFetch_m, lowerFetch_m, pg_Pa, balanced_Pa, step_m }) {
+  const up = driftHeight_m(upperFetch_m, pg_Pa), down = driftHeight_m(lowerFetch_m, pg_Pa);
+  if (!up || !down) return null;
+  const gamma_N_m3 = Math.min(.426 * pg_Pa + 2200, 4700);
+  const hb_m = balanced_Pa / gamma_N_m3, hc_m = Math.max(0, step_m - hb_m);
+  const hd_m = Math.max(up.hd_m, .75 * down.hd_m);
+  const active = pg_Pa > 0 && hc_m > 0 && (hb_m === 0 || hc_m / hb_m >= .2);
+  const height_m = Math.min(hd_m, hc_m);
+  const width_m = active ? Math.min(8 * hc_m, hd_m <= hc_m ? 4 * hd_m : 4 * hd_m ** 2 / hc_m) : 0;
+  return { gamma_N_m3, hb_m, hc_m, hd_m, height_m, width_m, peak_Pa: active ? height_m * gamma_N_m3 : 0, active, upper: up, lower: down,
+    reference: "104-05 §7.1;Fig.8/9;ec.(4). Cota superior tabulada de Fig.9, sin extrapolación." };
+}
+
+/** Casos S balanceado, parcial y acumulación junto a un nivel superior, fuerzas en N. */
+export function computeSnow(project, gen, e) {
+  const surfaces = gen.surfaces.filter((s) => s.material === "cubierta");
+  const rows = [], issues = [], assumptions = [], cases = [];
+  for (const sf of surfaces) {
+    const bb = bbox(gen.levels[sf.level].footprint);
+    const theta = sf.level === gen.levels.length - 1 ? Math.atan(project.roof.slope / 100) * 180 / Math.PI : 0;
+    const type = sf.level === gen.levels.length - 1 ? project.roof.type : "plano";
+    const width = type === "dos_aguas" ? Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY) / 2 + project.roof.overhang : Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY);
+    const info = balancedSnow({ pg_Pa: e.location.pg * 1000, Ce: e.snow.Ce, Ct: e.snow.Ct, importance: e.importance, theta_deg: theta, roofType: type, width_m: width });
+    const planArea_m2 = Math.abs(polygonArea(sf.points.map((p) => ({ x: p[0], y: p[1] }))));
+    rows.push({ ...info, id: `S:${sf.key}`, level: sf.level, surfaceKey: sf.key, points: sf.points, planArea_m2, point_m: areaCenter_m(sf.points), force_N: [0, 0, -info.pressure_Pa * planArea_m2] });
+  }
+  cases.push({ id: "S:balanceada", kind: "S", label: "Nieve balanceada", entries: rows, ...actionResultant(rows) });
+  if (!e.snow.confirmed || !e.snow.source) assumptions.push({ id: "snow:factors", scope: "nieve", message: `Ce=${e.snow.Ce} y Ct=${e.snow.Ct} supuestos (104 Tablas2/3). Ct=1,2 inicial evita suponer calefacción permanente. Confirmá exposición y condición térmica.` });
+  assumptions.push({ id: "snow:slope", scope: "nieve", message: "Cs=1: no se aprovecha evacuación por pendiente. Cubierta retenedora supuesta para masa sísmica; confirmar deslizamiento, acumulación no balanceada y caída sobre niveles inferiores." });
+  // Carga parcial por paño (conserva equilibrio y evita sumar casos alternativos).
+  if (rows.length > 1) rows.forEach((r) => {
+    const entries = rows.map((a) => a.id === r.id ? a : { ...a, pressure_Pa: a.pressure_Pa / 2, force_N: a.force_N.map((v) => v / 2) });
+    cases.push({ id: `S:parcial:${r.surfaceKey}`, kind: "S", label: `Nieve parcial · nivel ${r.level + 1}`, entries, reference: "104-05 §5.2: paño completo/resto a mitad; patrón por tramo pendiente de análisis", ...actionResultant(entries) });
+  });
+  for (const sf of surfaces) {
+    const above = gen.levels[sf.level + 1];
+    if (!above?.footprint) continue;
+    const roofBox = bbox(sf.points.map((p) => ({ x: p[0], y: p[1] }))), upperBox = bbox(above.footprint);
+    const balanced = rows.find((r) => r.surfaceKey === sf.key);
+    project.levels[sf.level + 1].walls.filter((w) => w.type === "exterior").forEach((wall) => {
+      const vertical = Math.abs(wall.a.x - wall.b.x) < 1e-6;
+      const horizontal = Math.abs(wall.a.y - wall.b.y) < 1e-6;
+      if (!vertical && !horizontal) { issues.push("Acumulación de nieve junto a muros oblicuos no implementada."); return; }
+      const axis = vertical ? 0 : 1, coordinate = axis === 0 ? wall.a.x : wall.a.y;
+      const min = axis === 0 ? roofBox.minX : roofBox.minY, max = axis === 0 ? roofBox.maxX : roofBox.maxY;
+      if (Math.abs(coordinate - min) > .01 && Math.abs(coordinate - max) > .01) return;
+      const alongAxis = 1 - axis, amin = Math.min(wall.a[vertical ? "y" : "x"], wall.b[vertical ? "y" : "x"]), amax = Math.max(wall.a[vertical ? "y" : "x"], wall.b[vertical ? "y" : "x"]);
+      const sign = Math.abs(coordinate - min) < .01 ? 1 : -1;
+      const middle = areaCenter_m(sf.points);
+      const probe = { x: axis === 0 ? coordinate - sign * .02 : middle[0], y: axis === 1 ? coordinate - sign * .02 : middle[1] };
+      if (!pointInPolygon(probe, above.footprint)) return;
+      const upperFetch = axis === 0 ? upperBox.maxX - upperBox.minX : upperBox.maxY - upperBox.minY;
+      const data = snowDrift({ upperFetch_m: upperFetch, lowerFetch_m: max - min, pg_Pa: e.location.pg * 1000, balanced_Pa: balanced.pressure_Pa, step_m: above.zTop - balanced.point_m[2] });
+      if (!data) { issues.push("Acumulación de nieve fuera de Fig.9 tabulada: pg>5 kPa o longitud>120 m; requiere cálculo específico."); return; }
+      if (!data.active || !data.width_m) return;
+      let points = clip3D(clip3D(sf.points, alongAxis, amin, true), alongAxis, amax, false);
+      points = clip3D(points, axis, coordinate + sign * data.width_m, sign < 0);
+      if (points.length < 3) return;
+      const center = areaCenter_m(points);
+      const average_Pa = data.peak_Pa * Math.max(0, 1 - sign * (center[axis] - coordinate) / data.width_m);
+      const area_m2 = Math.abs(polygonArea(points.map((p) => ({ x: p[0], y: p[1] }))));
+      const drift = { id: `S:drift:${sf.key}:${wall.id}`, level: sf.level, surfaceKey: sf.key, points, point_m: center, pressure_Pa: average_Pa, planArea_m2: area_m2, force_N: [0, 0, -average_Pa * area_m2], ...data };
+      const entries = [...rows, drift];
+      cases.push({ id: drift.id, kind: "S", label: `Nieve acumulada junto a ${project.levels[sf.level + 1].name}`, entries, ...actionResultant(entries) });
+    });
+  }
+  // El pico de todos los muros simultáneo es una cota adicional, no sustituye los casos direccionales.
+  const drifts = cases.filter((c) => c.id.startsWith("S:drift:")).map((c) => c.entries.at(-1));
+  if (drifts.length > 1) { const entries = [...rows, ...drifts]; cases.push({ id: "S:acumulacion-envolvente", kind: "S", label: "Acumulación simultánea · cota conservadora", entries, ...actionResultant(entries) }); }
+  if (project.roof.type === "dos_aguas") {
+    const top = gen.levels.length - 1, lv = gen.levels[top], bb = lv.footprint ? bbox(lv.footprint) : null;
+    const W = bb ? Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY) / 2 + project.roof.overhang : 0;
+    const theta = Math.atan(project.roof.slope / 100) * 180 / Math.PI;
+    if (W > 0 && theta > 21 / W + .5 && theta <= 70) {
+      const beta = e.location.pg <= 1 ? 1 : e.location.pg < 2 ? 1.5 - .5 * e.location.pg : .5;
+      const factor = (W <= 6 ? 1.5 : 1.2 * (1 + beta / 2)) / e.snow.Ce;
+      const topRows = rows.filter((a) => a.level === top);
+      topRows.forEach((leeward) => {
+        const entries = rows.map((a) => a.level !== top ? a : { ...a, pressure_Pa: a.pressure_Pa * (a.id === leeward.id ? factor : W <= 6 ? 0 : .3), force_N: a.force_N.map((v) => v * (a.id === leeward.id ? factor : W <= 6 ? 0 : .3)) });
+        cases.push({ id: `S:no-balanceada:${leeward.surfaceKey}`, kind: "S", label: "Nieve no balanceada · dos aguas", entries, beta, W_m: W, leewardFactor: factor, reference: "104-05 §6.1;Fig.5;ec.(3)", ...actionResultant(entries) });
+      });
+    }
+    if (gen.levels.length > 1) issues.push("Caída y deslizamiento de nieve desde cubierta inclinada sobre niveles inferiores (104 Cap.9): no calculados.");
+  }
+  return { source: SOURCES.snow, cases, assumptions, issues: [...new Set(issues)], rows, status: "review" };
+}

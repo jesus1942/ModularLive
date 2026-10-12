@@ -74,7 +74,7 @@
     <main class="workspace">
       <aside class="sidebar" id="settingsPanel">
         <details class="engineering" id="engineeringSettings">
-          <summary>Ingeniería · base</summary>
+          <summary>Ingeniería · cargas</summary>
           <div class="fields" id="engineeringInputs"></div>
         </details>
         <details open>
@@ -185,6 +185,7 @@
           </div>
         </div>
         <div class="pane pane--3d">
+          <div class="viewer-shell">
           <div id="viewer" class="viewer"></div>
           <div class="layers" id="layerToggles"></div>
           <div class="layers layers--presets">
@@ -192,6 +193,13 @@
             <button type="button" data-preset="terminado">Terminado</button>
             <button type="button" id="frame3d">Encuadrar</button>
             <select id="levelView" aria-label="Niveles visibles en 3D" hidden></select>
+          </div>
+          </div>
+          <div class="engineering eng-wind-view" id="windViewControls">
+            <label>Vista de cargas<select id="windViewMode"><option value="model">Modelo de obra</option><option value="main">Viento · sistema principal</option><option value="local-negative">Viento · succión local C&R</option><option value="local-positive">Viento · presión local C&R</option></select></label>
+            <label id="windCaseField" hidden>Caso de viento<select id="windCaseSelect"></select></label>
+            <p class="eng-note" id="windLegend" aria-live="polite"></p>
+            <p class="eng-note" id="windTooltip" aria-live="polite"></p>
           </div>
         </div>
       </section>

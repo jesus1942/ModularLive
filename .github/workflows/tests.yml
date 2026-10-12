@@ -28,5 +28,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ingenieria-fase-0-interfaz
+          name: ingenieria-fase-1-interfaz
           path: test-results/browser/

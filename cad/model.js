@@ -102,16 +102,17 @@ export function createDefaultProject() {
   walls[1].openings = [
     { id: newId("o"), kind: "window", offset: 0.9, width: 1.2, height: 1, sill: 1 }
   ];
+  const level = createLevel(0, walls);
   return {
     version: 2,
     name: "Vivienda modular",
     system: "steel_tube",
     mainFrame: "tubo_100x100x3_2",
-    levels: [createLevel(0, walls)],
+    levels: [level],
     foundation: { type: "dados", ...FOUNDATIONS.dados.defaults },
     roof: { type: "plano", slope: ROOF_TYPES.plano.defaultSlope, overhang: 0.25 },
     settings: { ...DEFAULT_SETTINGS },
-    engineering: defaultEngineering()
+    engineering: { ...defaultEngineering(), usage: [{ level: 0, levelId: level.id, use: "vivienda" }] }
   };
 }
 
