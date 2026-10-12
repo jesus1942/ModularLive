@@ -1,4 +1,4 @@
-import { LOCATIONS } from "./data/locations.js";
+import { LOCATIONS, locationWind_m_s } from "./data/locations.js";
 import { USES } from "./data/reglamentos.js";
 
 /** Crea entradas independientes por proyecto; las unidades son SI salvo campos rotulados. */
@@ -7,7 +7,7 @@ export function defaultEngineering() {
     mode: "verify",
     codeEdition: "2025", jurisdiction: "", jurisdictionConfirmed: false,
     // 80,8 es un escenario conservador de comparación, NO una lectura local de Puerto Madryn.
-    location: { preset: "puerto-madryn", V: 80.8, windEdition: "2025", exposure: "C", Kzt: 1, pg: 0.3, seismicZone: 0, frostDepth: 0.6, altitude: 0, confirmed: false, source: "" },
+    location: { preset: "puerto-madryn", V: 80.8, windEdition: "2025", windRisk: "II", exposure: "C", Kzt: 1, pg: 0.3, seismicZone: 0, frostDepth: 0.6, altitude: 0, confirmed: false, source: "" },
     importance: "II", usage: [], roofAccess: "inaccesible",
     wind: { enclosure: "potential", effectiveArea_m2: 1, serviceV_m_s: 35, serviceConfirmed: false, source: "" },
     snow: { Ce: 1, Ct: 1.2, retain: true, confirmed: false, source: "" },
@@ -87,6 +87,14 @@ export function normalizeEngineering(raw, levels) {
   next.jurisdiction = typeof input.jurisdiction === "string" ? input.jurisdiction.trim() : "";
   next.jurisdictionConfirmed = input.jurisdictionConfirmed === true && !!next.jurisdiction;
   if (!["I", "II", "III", "IV"].includes(next.importance)) { next.importance = "II"; issue("Categoría de riesgo inválida: se usa II supuesta."); }
+  if (next.codeEdition === "2025" && next.location.windRisk !== next.importance) {
+    // El riesgo está en el mapa 2025: también se controla al importar JSON, no sólo desde el DOM.
+    next.location.V = locationWind_m_s(next.location.preset, "2025", next.importance) ?? (["III", "IV"].includes(next.importance) ? 88.7 : 80.8);
+    next.location.confirmed = false;
+    next.location.source = "";
+    issue(`Cambio de riesgo: la velocidad anterior no corresponde al mapa ${next.importance}. V=${next.location.V} m/s a confirmar.`);
+  }
+  next.location.windRisk = next.importance;
   if (!["inaccesible", "terraza", "terraza_publica"].includes(next.roofAccess)) { next.roofAccess = "inaccesible"; issue("Acceso a cubierta desconocido: se usa mantenimiento supuesto."); }
   for (const [group, key, allowed] of [["wind", "enclosure", ["potential", "closed", "partial"]], ["seismic", "site", ["SA", "SB", "SC", "SD", "SE", "SF"]], ["seismic", "riskGroup", ["Ao", "A", "B", "C"]]]) {
     if (!allowed.includes(next[group][key])) { next[group][key] = defaults[group][key]; next[group].confirmed = false; issue(`Dato inválido engineering.${group}.${key}: se usa un supuesto.`); }

@@ -158,7 +158,7 @@ export function computeWind(project, gen, e) {
   const envelope = gen.surfaces.filter((sf) => ["exterior", "cubierta"].includes(sf.material) && gen.levels[sf.level]?.footprint);
   if (gen.levels.some((lv) => !lv.footprint)) issues.push("Viento: se omiten niveles sin contorno cerrado; sus presiones no se pudieron determinar.");
   const height = Math.max(0, ...envelope.flatMap((s) => s.points.map((p) => p[2])));
-  const result = { edition, source, height_m: height, cases, components, assumptions, issues, status: "review", scope: "Edificio regular, rectangular, rígido supuesto y altura ≤20 m. Presiones normales a la envolvente bruta; sin resguardo entre niveles." };
+  const result = { edition, riskCategory: e.importance, source, height_m: height, cases, components, assumptions, issues, status: "review", scope: "Edificio regular, rectangular, rígido supuesto y altura ≤20 m. Presiones normales a la envolvente bruta; sin resguardo entre niveles." };
   if (!envelope.length || height <= 0 || height > 20) { issues.push("Viento sin calcular: falta envolvente o la altura excede 20 m del alcance implementado."); return result; }
   const footprints = gen.levels.filter((lv) => lv.footprint);
   if (footprints.some((lv) => Math.abs(Math.abs(polygonArea(lv.footprint)) - (bbox(lv.footprint).maxX - bbox(lv.footprint).minX) * (bbox(lv.footprint).maxY - bbox(lv.footprint).minY)) > .01)) issues.push("Planta irregular: zonas de viento aproximadas por caja envolvente; requiere estudio de forma y túnel de viento cuando corresponda.");

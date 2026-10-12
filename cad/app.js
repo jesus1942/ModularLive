@@ -138,6 +138,7 @@ function renderWindView() {
   if ([...select.options].some((op) => op.value === previous)) select.value = previous;
   $("#windCaseField").hidden = mode !== "main";
   let patches = [], pointEntries = [];
+  const minimumCase = select.value.startsWith("W:min:");
   if (mode === "main") {
     patches = windCasePatches(engineering.wind, select.value);
     pointEntries = engineering.wind.cases.find((c) => c.id === select.value)?.pointEntries ?? [];
@@ -151,7 +152,7 @@ function renderWindView() {
   viewer?.setPointLoads(engineering.entries.filter((r) => r.kind === "extra"));
   const lo = Math.min(0, ...patches.map((p) => p.pressure_Pa)), hi = Math.max(0, ...patches.map((p) => p.pressure_Pa));
   $("#windLegend").textContent = mode === "model" ? "Cielorraso: activá su capa para ver placa y estructura. Los equipos aportados llevan una flecha vertical."
-    : `${engineering.wind.edition} · oscuro: succión (−); claro: presión (+). Flechas normales a la superficie. ${formatPressure(lo)} a ${formatPressure(hi)}. ${mode === "main" ? pointEntries.length ? "Mínimo horizontal sobre proyección vertical; no es succión de techo." : "Caso simultáneo del sistema principal." : "C&R: envolvente local por componente, no simultánea ni sumable al viento global."} Escenario con supuestos.`;
+    : `${engineering.wind.edition} · oscuro: succión (−); claro: presión (+). Flechas normales a la superficie. ${formatPressure(lo)} a ${formatPressure(hi)}. ${mode === "main" ? minimumCase ? "Mínimo horizontal sobre proyección vertical; no es succión de techo." : "Caso simultáneo del sistema principal." : "C&R: envolvente local por componente, no simultánea ni sumable al viento global."} Escenario con supuestos.`;
   $("#windTooltip").textContent = "";
 }
 $("#windViewMode").addEventListener("change", renderWindView);
@@ -269,6 +270,7 @@ $("#settingsPanel").addEventListener("change", (e) => {
         const edition = p.engineering.codeEdition;
         p.engineering.location.V = locationWind_m_s(p.engineering.location.preset, edition, p.engineering.importance) ?? (edition === "2025" ? p.engineering.importance === "II" || p.engineering.importance === "I" ? 80.8 : 88.7 : 58);
         p.engineering.location.windEdition = edition;
+        p.engineering.location.windRisk = p.engineering.importance;
         p.engineering.location.confirmed = false;
         p.engineering.location.source = "";
         p.engineering.jurisdictionConfirmed = false;

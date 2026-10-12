@@ -83,13 +83,18 @@ test("qz 2005: distingue ejemplo orientativo Kz.85 de Tabla5 C.87; I no desapare
   assert.throws(() => exposureKz("2025", "C", 21));
 });
 
-test("cambiar edición no reutiliza confirmación ni velocidad de otra edición", () => {
+test("cambiar edición/riesgo no reutiliza confirmación ni velocidad de otro mapa al importar", () => {
   const p = createDefaultProject(); p.engineering.location.confirmed = true; p.engineering.location.source = "Mapa2025";
   p.engineering.codeEdition = "2005";
   const e = settings(p); near(e.location.V, 58); assert.equal(e.location.confirmed, false); assert.equal(e.location.source, "");
   assert.ok(e.inputIssues.some((s) => s.includes("Cambio de edición")));
   const old = structuredClone(p.engineering); delete old.codeEdition; old.location.V = 58;
   const restored = normalizeEngineering(old, p.levels); assert.equal(restored.codeEdition, "2025"); near(restored.location.V, 80.8);
+  const risk = createDefaultProject(); risk.engineering.location.preset = "rawson"; risk.engineering.location.V = 73.5;
+  risk.engineering.location.confirmed = true; risk.engineering.location.source = "MapaII";
+  risk.engineering.importance = "IV";
+  const revised = settings(risk); near(revised.location.V, 78.8);
+  assert.equal(revised.location.windRisk, "IV"); assert.equal(revised.location.confirmed, false); assert.equal(revised.location.source, "");
 });
 
 test("tabla de localidades: riesgo cambia mapa2025, Madryn no inventado", () => {
