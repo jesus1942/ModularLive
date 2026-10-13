@@ -15,8 +15,9 @@ Tiene dos herramientas:
 2. Agregá **tabiques** interiores: se enganchan a los muros existentes.
 3. Ubicá **puertas y ventanas** tocando sobre un muro. Con **Seleccionar** se arrastran a lo largo del muro y se editan sus medidas en el panel derecho. En las puertas se elige de qué lado va la bisagra y hacia qué lado abre (botones del panel, o doble clic / doble toque sobre la puerta para recorrer las cuatro opciones).
 4. Para **apilar niveles**, tocá `+` en la barra de niveles: se agrega un nivel encima con el contorno del de abajo, que se puede editar libremente. El nivel inferior se ve punteado como referencia y los extremos se enganchan a él. Cada nivel tiene su propia altura.
-5. Elegí fundación, techo, revestimientos y separaciones en el panel izquierdo.
-6. Revisá el 3D por capas (y por niveles), la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
+5. Para subir de nivel, en la planta baja tocá **Escalera** (`S`): un toque donde arranca y otro hacia donde sube. Se calcula sola: cantidad de alzadas, alzada, pedada y regla de Blondel, tramos y descansos (recta, en L o en U), con reglas municipales típicas (a confirmar con el código local) o de accesibilidad (Decreto 914/97). Arrastrala para moverla: si queda cerca de un muro se pega a su cara. En el nivel de arriba aparece el hueco.
+6. Elegí fundación, techo, revestimientos y separaciones en el panel izquierdo.
+7. Revisá el 3D por capas (y por niveles), la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
 
 Atajos: `V` seleccionar, `R` rectángulo, `E` muro, `I` tabique, `P` puerta, `N` ventana, `Ctrl+Z` / `Ctrl+Y`, `Esc` termina o cancela, `Supr` borra lo seleccionado. `Shift` libera el modo ortogonal.
 
@@ -29,6 +30,7 @@ El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, 
 - **Niveles**: cada nivel es un módulo completo que apoya sobre el bastidor superior del de abajo, con viguetas de entrepiso, placas de unión abulonadas entre niveles y columnas alineadas (si una esquina de arriba cae sobre un muro de abajo, abajo se agrega una columna que baja hasta la fundación). Avisa los voladizos y las columnas sin apoyo directo.
 - **Techo**: plano, una agua o dos aguas, con alero, sobre el nivel superior. La superficie se calcula en pendiente. Las partes de niveles inferiores que quedan descubiertas llevan cubierta plana con sus cabios.
 - **Puertas**: se computan por medida y mano (vista desde el lado hacia donde abre).
+- **Escaleras** (`cad/stairs.js`, `cad/stair-build.js`, reglas en `cad/data/stair-rules.js`): todas las alzadas iguales para el desnivel real entre pisos terminados; el hueco del entrepiso se abre donde la pisada queda a menos de la altura de paso (2,00 m) de la cara inferior del entrepiso. El generador corta las viguetas, agrega brochales y vigas de borde, descuenta placa, aislación y cielorraso, y pone baranda en los bordes libres del hueco. La escalera lleva zancas, escalones, descansos con bastidor y apoyos, barandas en los lados libres y pasamanos amurado donde corresponde. Avisa si corta un muro, si una puerta la barre, si la llegada queda bloqueada o si no cumple alguna regla.
 - **Cerramientos**: placas, aislación, barrera de viento y revestimientos por superficie neta (descontando aberturas e incluyendo hastiales).
 - **Lista de cortes**: optimiza los cortes sobre la barra comercial (6 m por defecto, con espesor de corte) y marca los empalmes de piezas más largas que la barra.
 

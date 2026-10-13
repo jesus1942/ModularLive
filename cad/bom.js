@@ -12,6 +12,7 @@ import {
 } from "./catalog.js";
 import { round } from "./geometry.js";
 import { doorLeaf } from "./model.js";
+import { STAIR_TREADS } from "./stairs.js";
 import { resolveMaterial } from "./engineering/data/materials.js";
 
 const n = (v, d = 2) => String(round(v, d)).replace(".", ",");
@@ -188,6 +189,30 @@ export function computeBom(project, gen) {
   openings.forEach(({ count, door }, key) =>
     add("Aberturas", key, "u", count, door ? "Mano vista desde el lado hacia donde abre · marco para perfil C" : "Con marco para fijar al perfil C")
   );
+
+  // ---------- Escaleras ----------
+  const stairRows = new Map();
+  const addStair = (material, unit, quantity, detail) => {
+    const k = `${material}|${unit}`;
+    const row = stairRows.get(k) ?? { material, unit, quantity: 0, detail };
+    row.quantity += quantity;
+    stairRows.set(k, row);
+  };
+  (gen.stairs ?? []).filter((lay) => lay.solution?.ok && lay.stats).forEach((lay) => {
+    const st = lay.stair;
+    const t = lay.stats;
+    const label = STAIR_TREADS[st.tread] ?? STAIR_TREADS.chapa;
+    addStair(`Escalón ${label.toLowerCase()} ${n(st.width)} × ${n(lay.solution.p + 0.03)} m`, "u", t.treads, `Pedada ${n(lay.solution.p)} m + 3 cm de nariz; alzada ${n(lay.solution.a, 3)} m`);
+    if (t.landingArea > 0) addStair(`Descanso de ${label.toLowerCase()}`, "m²", t.landingArea, "Superficie de descansos (sobre bastidor de tubos)");
+    addStair("Placa de anclaje 150 × 150 × 6,35 mm (zancas y apoyos)", "u", t.basePlates, "Al piso de abajo; 4 anclajes por placa");
+    addStair("Anclaje Ø10 mm para placa de zanca o apoyo", "u", t.basePlates * 4, "Cuatro por placa");
+    addStair("Planchuela de unión zanca–estructura 100 × 100 × 6,35 mm", "u", t.topPlates, "Llegada de cada zanca al descanso o al borde del hueco");
+    if (t.brackets > 0) addStair("Soporte de pasamanos amurado", "u", t.brackets, "Uno cada 1 m como máximo");
+    if (st.tread === "madera") addStair("Ángulo de apoyo de escalón 1 1/2\" × 3/16\" (par)", "u", t.treads, "Un par por escalón, soldado a las zancas");
+    else addStair("Banda antideslizante para nariz de escalón", "u", t.treads, "Una por escalón");
+    if (lay.rules.tactileStrip) addStair("Banda táctil de prevención 0,60 m", "u", t.flights * 2, "Al inicio y al final de cada tramo (Decreto 914/97)");
+  });
+  stairRows.forEach((r) => add("Escaleras", r.material, r.unit, r.unit === "u" ? Math.ceil(r.quantity) : round(r.quantity * (1 + waste), 2), r.detail));
 
   // ---------- Fijaciones ----------
   const sheetArea = t.floorDeckArea + t.mezzanineDeckArea * 2 + extSkin * 2 + extInner + intFaces + t.roofArea * 2;

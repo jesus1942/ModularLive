@@ -263,3 +263,90 @@ export const isOrthogonal = (poly) =>
     const q = poly[(i + 1) % poly.length];
     return Math.abs(p.x - q.x) < 1e-6 || Math.abs(p.y - q.y) < 1e-6;
   });
+
+/**
+ * Contorno de la unión de rectángulos alineados a los ejes {x0, x1, y0, y1}.
+ * Devuelve una lista de polígonos (uno por cada región conexa), en sentido antihorario.
+ */
+export function unionOutline(rects) {
+  if (!rects.length) return [];
+  const xs = [...new Set(rects.flatMap((r) => [round(r.x0, 4), round(r.x1, 4)]))].sort((a, b) => a - b);
+  const ys = [...new Set(rects.flatMap((r) => [round(r.y0, 4), round(r.y1, 4)]))].sort((a, b) => a - b);
+  const inside = (i, j) => {
+    if (i < 0 || j < 0 || i >= xs.length - 1 || j >= ys.length - 1) return false;
+    const cx = (xs[i] + xs[i + 1]) / 2;
+    const cy = (ys[j] + ys[j + 1]) / 2;
+    return rects.some((r) => cx > Math.min(r.x0, r.x1) && cx < Math.max(r.x0, r.x1) && cy > Math.min(r.y0, r.y1) && cy < Math.max(r.y0, r.y1));
+  };
+  const edges = new Map();
+  const push = (a, b) => {
+    const k = `${a[0]}:${a[1]}`;
+    if (!edges.has(k)) edges.set(k, []);
+    edges.get(k).push(b);
+  };
+  for (let i = 0; i < xs.length - 1; i += 1) {
+    for (let j = 0; j < ys.length - 1; j += 1) {
+      if (!inside(i, j)) continue;
+      const [x0, x1, y0, y1] = [xs[i], xs[i + 1], ys[j], ys[j + 1]];
+      if (!inside(i, j - 1)) push([x0, y0], [x1, y0]);
+      if (!inside(i + 1, j)) push([x1, y0], [x1, y1]);
+      if (!inside(i, j + 1)) push([x1, y1], [x0, y1]);
+      if (!inside(i - 1, j)) push([x0, y1], [x0, y0]);
+    }
+  }
+  const loops = [];
+  const take = () => {
+    for (const [k, list] of edges) {
+      if (list.length) return [k, list];
+    }
+    return null;
+  };
+  let start = take();
+  while (start) {
+    const [k0] = start;
+    const loop = [];
+    let k = k0;
+    let guard = 0;
+    do {
+      const [x, y] = k.split(":").map(Number);
+      loop.push({ x, y });
+      const list = edges.get(k);
+      const next = list.pop();
+      k = `${next[0]}:${next[1]}`;
+      guard += 1;
+    } while (k !== k0 && guard < 10000);
+    const simple = simplifyPolygon(loop);
+    if (simple.length >= 3) loops.push(ensureCCW(simple));
+    start = take();
+  }
+  return loops;
+}
+
+/** ¿El segmento AB atraviesa el interior del rectángulo (achicado en tol)? */
+export function segmentCrossesRect(a, b, r, tol = 0.02) {
+  const x0 = Math.min(r.x0, r.x1) + tol;
+  const x1 = Math.max(r.x0, r.x1) - tol;
+  const y0 = Math.min(r.y0, r.y1) + tol;
+  const y1 = Math.max(r.y0, r.y1) - tol;
+  if (x1 <= x0 || y1 <= y0) return false;
+  let t0 = 0;
+  let t1 = 1;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const clip = (p, q) => {
+    if (Math.abs(p) < 1e-12) return q >= 0;
+    const t = q / p;
+    if (p < 0) {
+      if (t > t1) return false;
+      if (t > t0) t0 = t;
+    } else {
+      if (t < t0) return false;
+      if (t < t1) t1 = t;
+    }
+    return true;
+  };
+  if (clip(-dx, a.x - x0) && clip(dx, x1 - a.x) && clip(-dy, a.y - y0) && clip(dy, y1 - a.y)) {
+    return (t1 - t0) * Math.hypot(dx, dy) > tol;
+  }
+  return false;
+}

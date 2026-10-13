@@ -4,6 +4,8 @@ import { createViewer, LAYERS } from "./viewer3d.js";
 import { generate } from "./generator.js";
 import { bomToCsv, computeBom, cutListToCsv } from "./bom.js";
 import { copyContour, createDefaultProject, createLevel, defaultSwing, doorLeaf, levelName, newId } from "./model.js";
+import { STAIR_KINDS, STAIR_TREADS } from "./stairs.js";
+import { STAIR_RULES } from "./data/stair-rules.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
 import { pointKey, wallDir, wallLength } from "./geometry.js";
 import { runEngineering } from "./engineering/engine.js";
@@ -258,6 +260,13 @@ function renderSelection() {
   const project = store.project;
   const level = levelOf(project);
   const li = activeLevel();
+  if (sel?.type === "stair") {
+    const st = (level.stairs ?? []).find((x) => x.id === sel.stairId);
+    if (st) {
+      renderStairPanel(panel, st, li);
+      return;
+    }
+  }
   const wall = sel && level.walls.find((w) => w.id === sel.wallId);
   if (!sel || !wall) {
     const counts = level.walls.reduce((acc, w) => ((acc[w.type] += 1), acc), { exterior: 0, interior: 0 });
@@ -267,6 +276,7 @@ function renderSelection() {
       <p class="muted">${counts.exterior} muros exteriores · ${counts.interior} tabiques${info ? ` · piso a ${fmtNum(info.floorTop)} m` : ""}. Elegí una herramienta arriba para dibujar o tocá un elemento para editarlo.</p>
       <div class="row-actions">
         <button type="button" class="btn btn--ghost" data-action="add-level">+ Nivel encima</button>
+        ${li < project.levels.length - 1 ? '<button type="button" class="btn btn--ghost" data-action="add-stair">+ Escalera al nivel de arriba</button>' : ""}
         ${li > 0 ? '<button type="button" class="btn btn--ghost" data-action="copy-contour">Copiar contorno de abajo</button>' : ""}
         ${project.levels.length > 1 ? '<button type="button" class="btn btn--danger" data-action="delete-level">Eliminar nivel</button>' : ""}
       </div>
@@ -277,6 +287,7 @@ function renderSelection() {
         <li>Mientras dibujás, escribí el largo y <kbd>Enter</kbd></li>
       </ul>`;
     panel.querySelector('[data-action="add-level"]').addEventListener("click", addLevelAbove);
+    panel.querySelector('[data-action="add-stair"]')?.addEventListener("click", () => editor.setTool("stair"));
     panel.querySelector('[data-action="copy-contour"]')?.addEventListener("click", () => {
       if (level.walls.length && !confirm(`¿Reemplazar los muros de ${level.name} por el contorno del nivel de abajo?`)) return;
       store.update((p) => {
@@ -397,6 +408,56 @@ function renderSelection() {
     panel.querySelector('[data-action="add-door"]').addEventListener("click", () => addOpening("door"));
     panel.querySelector('[data-action="add-window"]').addEventListener("click", () => addOpening("window"));
   }
+  panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
+}
+
+/** Panel de una escalera: tipo, ancho, reglas, verificaciones y avisos. */
+function renderStairPanel(panel, st, li) {
+  const lay = gen?.stairs?.find((l) => l.stair.id === st.id && l.level === li);
+  const fmt3 = (v) => fmtNum(v, 3);
+  const sol = lay?.solution;
+  const option = (value, label, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`;
+  const rules = STAIR_RULES[st.ruleSet] ?? STAIR_RULES.municipal;
+  panel.innerHTML = `
+    <h3>Escalera <span class="muted">${STAIR_KINDS[st.kind]}</span></h3>
+    ${!lay ? '<p class="warn-inline">No hay nivel encima: agregá un nivel para que la escalera tenga adónde llegar.</p>' : ""}
+    ${sol?.ok ? `<p class="stair-sum"><strong>${sol.n} alzadas de ${fmt3(sol.a)} m</strong> · pedada ${fmtNum(sol.p)} m · 2a + p = ${fmt3(sol.blondel)} m<br>${lay.risers.length} tramo${lay.risers.length > 1 ? "s" : ""} (${lay.risers.join(" + ")}) · salva ${fmt3(sol.a * sol.n)} m · largo ${fmtNum(lay.length)} m</p>` : ""}
+    <div class="fields fields--2">
+      <label>Tipo<select data-st="kind">${Object.entries(STAIR_KINDS).map(([k, l]) => option(k, l, st.kind)).join("")}</select></label>
+      ${st.kind !== "recta" ? `<label>Gira hacia<select data-st="turn">${option("derecha", "Derecha", st.turn)}${option("izquierda", "Izquierda", st.turn)}</select></label>` : ""}
+      <label>Ancho libre (m)<input type="number" min="0.6" max="2" step="0.05" data-st="width" value="${st.width}" /></label>
+      <label>Escalones<select data-st="tread">${Object.entries(STAIR_TREADS).map(([k, l]) => option(k, l, st.tread)).join("")}</select></label>
+      <label>Reglas<select data-st="ruleSet">${option("municipal", "Código municipal (vivienda)", st.ruleSet)}${option("accesible", "Accesible (Ley 24.314)", st.ruleSet)}</select></label>
+    </div>
+    <div class="row-actions">
+      <button type="button" class="btn btn--ghost" data-st-action="rotate">↻ Girar 90°</button>
+      <button type="button" class="btn btn--ghost" data-st-action="flip">⇄ Invertir sentido</button>
+      <button type="button" class="btn btn--danger" data-action="delete">Eliminar escalera</button>
+    </div>
+    ${lay?.checks?.length ? `<h4>Verificación</h4><ul class="checks">${lay.checks.map((c) => `<li class="${c.ok ? "ok" : "bad"}"><span>${c.ok ? "✓" : "✗"}</span> ${escapeHtml(c.label)} <small>${escapeHtml(c.detail)}</small></li>`).join("")}</ul>` : ""}
+    ${lay?.warnings?.length ? `<ul class="warnings">${lay.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>` : ""}
+    <p class="muted small">${escapeHtml(rules.label)}. ${escapeHtml(rules.source)} Arrastrá la escalera para moverla: si queda cerca de un muro se pega a su cara.</p>`;
+  const update = (fn) =>
+    store.update((p) => {
+      const target = levelOf(p).stairs.find((x) => x.id === st.id);
+      if (target) fn(target);
+    });
+  panel.querySelectorAll("[data-st]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const key = el.dataset.st;
+      if (key === "width" && (outOfRange(el) || !Number.isFinite(Number(el.value)))) {
+        toast("El ancho tiene que estar entre 0,60 y 2,00 m.");
+        el.value = st.width;
+        return;
+      }
+      update((t) => {
+        t[key] = key === "width" ? Number(el.value) : el.value;
+        if (key === "ruleSet" && el.value === "accesible") t.width = Math.max(t.width, STAIR_RULES.accesible.minWidth);
+      });
+    })
+  );
+  panel.querySelector('[data-st-action="rotate"]').addEventListener("click", () => update((t) => { t.dir = (t.dir + 90) % 360; }));
+  panel.querySelector('[data-st-action="flip"]').addEventListener("click", () => update((t) => { t.dir = (t.dir + 180) % 360; }));
   panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
 }
 
@@ -660,7 +721,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const keys = { v: "select", r: "rect", e: "exterior", i: "interior", p: "door", n: "window" };
+  const keys = { v: "select", r: "rect", e: "exterior", i: "interior", p: "door", n: "window", s: "stair" };
   const tool = keys[e.key.toLowerCase()];
   if (tool && editor.tool !== tool && !/^[0-9]$/.test(e.key)) editor.setTool(tool);
 });
