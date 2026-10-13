@@ -27,7 +27,7 @@ export function alongWall(a, b, walls, tol = 0.16) {
  * (iguales en un borde horizontal, distintas sobre la línea de narices de un tramo).
  * kind: "baranda" (pasamanos + parantes + barrotes) o "pared" (pasamanos amurado con soportes).
  */
-export function railAlong(add, { a, b, za, zb, height, kind, gap, identity, prof, postSpacing = 1.0, lv }) {
+export function railAlong(add, { a, b, za, zb, height, kind, gap, identity, prof, postSpacing = 1.0, lv, placed = null }) {
   const L = len(sub(b, a));
   if (L < 0.1) return { handrail_m: 0, brackets: 0, posts: 0, balusters: 0 };
   const at = (t) => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: za + (zb - za) * t });
@@ -36,9 +36,15 @@ export function railAlong(add, { a, b, za, zb, height, kind, gap, identity, prof
   if (kind === "pared") return { handrail_m: rail3D, brackets: Math.ceil(L / 1.0) + 1, posts: 0, balusters: 0 };
   const nPosts = Math.max(1, Math.ceil(L / postSpacing - 1e-9));
   const postH = height - prof("handrail").h / 2;
+  let posts = 0;
   for (let k = 0; k <= nPosts; k += 1) {
     const p = at(k / nPosts);
+    // en una esquina compartida por dos tramos de baranda va un solo parante
+    const key = `${Math.round(p.x * 1000)}:${Math.round(p.y * 1000)}`;
+    if (placed?.has(key)) continue;
+    placed?.add(key);
     add("railPost", "Barandas", [p.x, p.y, p.z], [p.x, p.y, p.z + postH], postH, { ...lv, identity: `${identity}:post:${k}` });
+    posts += 1;
   }
   const bal = prof("baluster");
   const step = gap + bal.b;
@@ -55,7 +61,7 @@ export function railAlong(add, { a, b, za, zb, height, kind, gap, identity, prof
     add("baluster", "Barandas", [p.x, p.y, p.z + 0.06], [p.x, p.y, p.z + 0.06 + h], h, { ...lv, identity: `${identity}:bal:${j}` });
     balusters += 1;
   }
-  return { handrail_m: rail3D, brackets: 0, posts: nPosts + 1, balusters };
+  return { handrail_m: rail3D, brackets: 0, posts, balusters };
 }
 
 /**

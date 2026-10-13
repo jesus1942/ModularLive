@@ -191,6 +191,17 @@ export function computeLiveLoads(project, gen, e, dead) {
       entries.push(surfaceLoad(sf, L0_Pa, { kind: "L", target: "floor", use: e.usage[sf.level].use, reference: `${source.label} Tabla4.1: ${use.row};sin reducción global` }));
       if (use.concentrated_N) concentratedChecks.push({ level: sf.level, force_N: use.concentrated_N, target: "floor", reference: `${source.label} Tabla4.1`, note: "Carga concentrada alternativa a L uniforme; posición más desfavorable pendiente de análisis de barra." });
     }
+    // Balcones y terrazas dibujados en la planta llevan su propia sobrecarga de uso (Tabla 4.1).
+    if (sf.material === "balcon") {
+      const L0_Pa = sf.area <= 10 ? 3000 : USES.balcon.L0_Pa;
+      entries.push(surfaceLoad(sf, L0_Pa, { kind: "L", target: "floor", use: "balcon", reference: `${source.label} Tabla4.1: ${USES.balcon.row};sin reducción global` }));
+      continue;
+    }
+    if (sf.material === "cubierta" && sf.access === "terraza") {
+      const use = e.roofAccess === "terraza_publica" ? "terraza_publica" : "terraza";
+      entries.push(surfaceLoad(sf, USES[use].L0_Pa, { kind: "L", target: "roof", use, reference: `${source.label} Tabla4.1: ${USES[use].row}` }));
+      continue;
+    }
     if (sf.material !== "cubierta") continue;
     const totalArea = gen.surfaces.filter((r) => r.material === "cubierta" && r.level === sf.level).reduce((s, r) => s + Math.abs(polygonArea(r.points.map((p) => ({ x: p[0], y: p[1] })))), 0);
     const roofD_Pa = (roofWeights.get(sf.level) ?? 0) / totalArea;

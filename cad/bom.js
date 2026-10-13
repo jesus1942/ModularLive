@@ -145,7 +145,7 @@ export function computeBom(project, gen) {
   if (t.mezzanineDeckArea > 0) {
     add("Entrepiso", SHEETS[system.sheets.floorDeck].label, "u", sheetsNeeded(t.mezzanineDeckArea, system.sheets.floorDeck, waste), `${n(t.mezzanineDeckArea, 2)} m² de entrepiso`);
     add("Entrepiso", "Lana de roca 50 mm (acústica)", "m²", Math.ceil(t.mezzanineDeckArea * (1 + waste)), "Entre viguetas de entrepiso");
-    add("Entrepiso", SHEETS.durlock.label, "u", sheetsNeeded(t.mezzanineDeckArea, "durlock", waste), "Cielorraso bajo entrepiso");
+    if (t.mezzanineDeckArea - t.soffitArea > 0.01) add("Entrepiso", SHEETS.durlock.label, "u", sheetsNeeded(t.mezzanineDeckArea - t.soffitArea, "durlock", waste), t.soffitArea > 0 ? "Cielorraso bajo entrepiso (sin los volados)" : "Cielorraso bajo entrepiso");
   }
 
   // ---------- Muros ----------
@@ -167,10 +167,39 @@ export function computeBom(project, gen) {
 
   // ---------- Techo ----------
   if (t.roofArea > 0) {
-    add("Techo", SHEETS[system.sheets.roofSheathing].label, "u", sheetsNeeded(t.roofArea, system.sheets.roofSheathing, waste), `${n(t.roofArea, 2)} m² de cubierta${t.levels > 1 ? " (incluye zonas descubiertas de niveles inferiores)" : " (en pendiente, con alero)"}`);
+    add("Techo", SHEETS[system.sheets.roofSheathing].label, "u", sheetsNeeded(t.roofArea, system.sheets.roofSheathing, waste), `${n(t.roofArea, 2)} m² de cubierta en pendiente, con alero${t.exposedRoofArea > 0 ? ` (incluye ${n(t.exposedRoofArea)} m² sobre partes descubiertas de niveles inferiores)` : ""}`);
     add("Techo", AREA_MATERIALS.membrana_techo, "m²", Math.ceil(t.roofArea * (1 + waste)), "Bajo cubierta");
     add("Techo", SHEETS[s.roofCladding].label, "u", sheetsNeeded(t.roofArea, s.roofCladding, waste), "Cubierta");
     add("Techo", AREA_MATERIALS.aislacion_techo, "m²", Math.ceil(t.roofCoveredArea * (1 + waste)), "Sobre cielorraso");
+  }
+  if (t.flashing_m > 0) {
+    add("Techo", "Babeta de chapa galvanizada contra muro (desarrollo 30 cm)", "m", round(t.flashing_m * (1 + waste), 1), "Encuentro del techo de la parte descubierta con el nivel de arriba; sube 15 cm por el muro");
+  }
+
+  // ---------- Terrazas y balcones ----------
+  const deckArea = t.terraceArea + t.balconyArea;
+  if (deckArea > 0) {
+    const T = "Terrazas y balcones";
+    add(T, "Multilaminado fenólico 18 mm 1,22 × 2,44 m", "u", Math.ceil((deckArea * (1 + waste)) / (1.22 * 2.44)), `${n(deckArea)} m² de piso exterior${t.terraceArea > 0 ? " (sobre cuñas de pendiente en terrazas)" : ""}`);
+    const upstands = (t.terraceFlashing_m + t.dripEdge_m) * 0.15;
+    add(T, "Membrana asfáltica 4 mm con geotextil (rollo de 10 m²)", "rollo", Math.ceil((deckArea * 1.15 + upstands) / 10), "Con 15 % de solapes y babetas de 15 cm");
+    add(T, "Deck de madera dura sobre tirantes", "m²", round(deckArea * (1 + waste), 2), "Tabla de 19 mm sobre tirantes 2\" × 1\" cada 0,40 m");
+    if (t.terraceArea > 0) add(T, AREA_MATERIALS.aislacion_techo, "m²", Math.ceil(t.terraceArea * (1 + waste)), "Bajo la terraza, sobre el cielorraso del nivel de abajo");
+    if (t.dripEdge_m > 0) add(T, "Goterón de chapa galvanizada", "m", round(t.dripEdge_m * (1 + waste), 1), "Bordes libres de terrazas y balcones");
+    if (t.terraceFlashing_m > 0) add(T, "Babeta de chapa contra muro (sobre la membrana)", "m", round(t.terraceFlashing_m * (1 + waste), 1), "Encuentro de la terraza con el nivel de arriba");
+    if (t.drains > 0) add(T, "Embudo de desagüe con rejilla + caño de lluvia Ø100", "u", t.drains, "Uno cada 25 m² de terraza como mínimo, en el borde bajo");
+  }
+  if (t.balconyGussets > 0) add("Terrazas y balcones", "Cartela 100 × 100 × 6,35 mm", "u", t.balconyGussets * 2, "Dos por viga de balcón en voladizo, soldadas al bastidor inferior");
+  if (t.balconyPosts > 0) {
+    add("Terrazas y balcones", "Placa de anclaje 150 × 150 × 6,35 mm (columnas de balcón)", "u", t.balconyPosts, "Sobre dado de hormigón 40 × 40 × 60 cm");
+    add("Terrazas y balcones", "Anclaje Ø10 mm para placa de columna de balcón", "u", t.balconyPosts * 4, "Cuatro por placa");
+  }
+
+  // ---------- Volados ----------
+  if (t.soffitArea > 0) {
+    add("Volados", SHEETS[system.sheets.wallSheathing].label, "u", sheetsNeeded(t.soffitArea, system.sheets.wallSheathing, waste), `${n(t.soffitArea)} m² de cierre inferior de volados`);
+    add("Volados", SHEETS[s.wallExteriorCladding].label, "u", sheetsNeeded(t.soffitArea, s.wallExteriorCladding, waste), "Revestimiento exterior bajo el volado");
+    add("Volados", AREA_MATERIALS.aislacion_piso, "m²", Math.ceil(t.soffitArea * (1 + waste)), "Piso sobre el exterior: misma aislación que planta baja");
   }
 
   // ---------- Aberturas ----------
@@ -218,7 +247,7 @@ export function computeBom(project, gen) {
   stairRows.forEach((r) => add("Escaleras", r.material, r.unit, r.unit === "u" ? Math.ceil(r.quantity) : round(r.quantity * (1 + waste), 2), r.detail));
 
   // ---------- Fijaciones ----------
-  const sheetArea = t.floorDeckArea + t.mezzanineDeckArea * 2 + extSkin * 2 + extInner + intFaces + t.roofArea * 2 + t.ceilingArea;
+  const sheetArea = t.floorDeckArea + t.mezzanineDeckArea * 2 + extSkin * 2 + extInner + intFaces + t.roofArea * 2 + t.ceilingArea + deckArea * 2 + t.soffitArea * 2;
   if (sheetArea > 0) {
     add("Fijaciones", 'Tornillo autoperforante punta mecha 8 × 1 1/4"', "u", Math.ceil((sheetArea * 15) / 100) * 100, "≈15 por m² de placa y chapa");
   }

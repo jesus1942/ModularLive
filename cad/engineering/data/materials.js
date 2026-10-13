@@ -29,7 +29,10 @@ export const MATERIALS = {
   vidrio: { label: "Vidrio de ventanas", basis: "area", value: 15, unit: "kg/m²", source: "SUPUESTO vidrio simple de 6 mm a 2.500 kg/m³; no representa DVH ni carpintería completa", url: BRIEF },
   puerta: { label: "Hoja de puerta", basis: "area", value: 15, unit: "kg/m²", source: "SUPUESTO 15 kg/m² de hoja; confirmar material y peso del fabricante", url: BRIEF },
   escalon_chapa: { label: "Escalón de chapa plegada 3,2 mm", basis: "area", value: 28, unit: "kg/m²", source: "SUPUESTO: 3,2 mm × 7.850 kg/m³ = 25,1 kg/m² más el plegado de nariz y apoyo; confirmar desarrollo", url: BRIEF },
-  escalon_madera: { label: "Escalón de madera dura 38 mm", basis: "area", value: 25, unit: "kg/m²", source: "SUPUESTO: 0,038 m × ≈ 650 kg/m³; confirmar especie y espesor", url: BRIEF }
+  escalon_madera: { label: "Escalón de madera dura 38 mm", basis: "area", value: 25, unit: "kg/m²", source: "SUPUESTO: 0,038 m × ≈ 650 kg/m³; confirmar especie y espesor", url: BRIEF },
+  fenolico_18: { label: "Multilaminado fenólico 18 mm", basis: "area", value: 11, unit: "kg/m²", source: "SUPUESTO: 0,018 m × ≈ 600 kg/m³; confirmar ficha del tablero", url: BRIEF },
+  membrana_terraza: { label: "Membrana asfáltica 4 mm con geotextil", basis: "area", value: 4.5, unit: "kg/m²", source: "SUPUESTO ≈ 4,5 kg/m² (rollo de 10 m² ≈ 45 kg); confirmar producto", url: BRIEF },
+  deck_exterior: { label: "Deck de madera dura sobre tirantes", basis: "area", value: 22, unit: "kg/m²", source: "SUPUESTO: tabla 19 mm + tirantes 2\" × 1\" c/0,40 m en madera dura; confirmar especie o WPC", url: BRIEF }
 };
 
 export const DEAD_LOAD_REFERENCE = {
@@ -65,13 +68,18 @@ export function surfaceLayers(project, surface) {
       layer(s.wallInteriorLining),
       ...(surface.coreArea_m2 > 0 ? [layer("aislacion_muro", surface.coreArea_m2)] : [])
     ];
-    case "cubierta": return [
-      layer("osb_11"), layer("membrana_techo"), layer(s.roofCladding),
-      layer("aislacion_techo", surface.coveredArea_m2)
-    ];
+    case "cubierta": return surface.access === "terraza"
+      ? [layer("fenolico_18"), layer("membrana_terraza"), layer("deck_exterior"), layer("aislacion_techo", surface.coveredArea_m2)]
+      : [
+        layer("osb_11"), layer("membrana_techo"), layer(s.roofCladding),
+        layer("aislacion_techo", surface.coveredArea_m2)
+      ];
     case "piso": return surface.level === 0
       ? [layer("osb_18"), layer("aislacion_piso")]
-      : [layer("osb_18"), layer("aislacion_entrepiso"), layer("durlock")];
+      // bajo un volado no hay cielorraso interior: lo reemplaza el cierre inferior ("volado")
+      : [layer("osb_18"), layer("aislacion_entrepiso"), layer("durlock", surface.area - (surface.overhangArea_m2 ?? 0))];
+    case "balcon": return [layer("fenolico_18"), layer("membrana_terraza"), layer("deck_exterior")];
+    case "volado": return [layer("osb_11"), layer(s.wallExteriorCladding), layer("aislacion_piso")];
     case "vidrio": return [layer("vidrio")];
     case "cielorraso": return [layer("durlock")];
     case "escalon": return [layer(surface.tread === "madera" ? "escalon_madera" : "escalon_chapa")];

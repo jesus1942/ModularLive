@@ -94,6 +94,7 @@ export const SYSTEMS = {
       ceilingJoist: "tubo_40x20x1_6",
       ceilingTrack: "tubo_40x20x1_6",
       stairStringer: "tubo_100x50x3_2",
+      balconyBeam: "tubo_100x50x3_2",
       landingFrame: "tubo_100x50x2",
       landingPost: "tubo_80x80x3_2",
       handrail: "tubo_40x40x1_6",

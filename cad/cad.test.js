@@ -150,13 +150,18 @@ test("dos módulos apilados: el nivel superior apoya sobre el inferior y el cóm
   assert.ok(bom.summary.steelKg > computeBom(one, g1).summary.steelKg * 1.6);
 });
 
-test("nivel superior más chico: la parte descubierta lleva cubierta plana", () => {
+test("nivel superior más chico: la parte descubierta lleva techo a un agua que aleja el agua del nivel de arriba", () => {
   const project = normalizeProject({ levels: [{ walls: rectWalls(8, 3) }, { walls: rectWalls(4, 3) }] });
   const gen = generate(project);
-  const flat = gen.surfaces.filter((sf) => sf.layer === "cubierta" && sf.level === 0);
-  assert.equal(flat.length, 1);
-  assert.ok(Math.abs(flat[0].area - 12) < 1e-9);
+  const roof = gen.surfaces.filter((sf) => sf.layer === "cubierta" && sf.level === 0);
+  assert.equal(roof.length, 1);
+  // alero de 0,25 en los tres bordes libres, nada contra el nivel de arriba
+  assert.ok(Math.abs(polygonArea(roof[0].points.map(([x, y]) => ({ x, y }))) - 4.25 * 3.5) < 1e-9);
+  // alto contra el nivel de arriba (x = 4) y 10 % de pendiente hacia el alero (x = 8,25)
+  const zAt = (x) => roof[0].points.filter((p) => Math.abs(p[0] - x) < 1e-9).map((p) => p[2]);
+  assert.ok(Math.abs(zAt(4)[0] - zAt(8.25)[0] - 0.425) < 1e-9);
   assert.ok(gen.members.some((m) => m.group === "Cabios" && m.level === 0));
+  assert.equal(count(gen, "Vigas de apoyo de cubierta"), 1);
   assert.ok(Math.abs(gen.totals.roofCoveredArea - 24) < 1e-9);
   assert.equal(gen.warnings.filter((w) => w.includes("voladizo")).length, 0);
 });
