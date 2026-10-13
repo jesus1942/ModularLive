@@ -81,6 +81,7 @@ export function generate(project) {
   const rafter = prof("rafter");
   const ridge = prof("ridge");
   const joist = prof("floorJoist");
+  const ceiling = prof("ceilingJoist");
   const col = system.hasMainFrame ? prof("column") : null;
   const colB = col ? col.b : 0;
 
@@ -90,6 +91,7 @@ export function generate(project) {
     roofArea: 0,
     roofPlanArea: 0,
     roofCoveredArea: 0, // superficie bajo cubierta (cielorraso)
+    ceilingArea: 0, // placa real, sin aleros ni superficie bajo otro entrepiso
     perimeter: 0,
     floorDeckArea: 0,
     mezzanineDeckArea: 0,
@@ -641,6 +643,36 @@ export function generate(project) {
         surfaces.push({ ...lv, layer: "piso", material: "platea", points: footprint.map((p) => [p.x, p.y, floorTop + 0.002]), holes: [], area });
       }
 
+      // ---------- Cielorraso bajo cubierta ----------
+      // Se genera donde hay techo, no debajo de otro piso (su paquete ya incluye placa).
+      // Los tubos apoyan en un marco perimetral propio. No se supone un sistema colgado.
+      const ceilingPolygons = isTop ? [footprint] : differenceRects(footprint, above).map((r) => [
+        { x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }
+      ]);
+      ceilingPolygons.forEach((polygon) => {
+        const cb = bbox(polygon);
+        const axis = cb.maxX - cb.minX <= cb.maxY - cb.minY ? "x" : "y";
+        const scan = axis === "x" ? "y" : "x";
+        const z = zTop - ring.h - ceiling.h / 2;
+        const cmin = scan === "x" ? cb.minX : cb.minY;
+        const cmax = scan === "x" ? cb.maxX : cb.maxY;
+        distributePositions(cmin + ceiling.b / 2, cmax - ceiling.b / 2, 0.4).forEach((c) => {
+          scanPolygon(polygon, scan, c).forEach(([u1, u2]) => {
+            const a = axis === "x" ? [u1 + ceiling.b, c, z] : [c, u1 + ceiling.b, z];
+            const b = axis === "x" ? [u2 - ceiling.b, c, z] : [c, u2 - ceiling.b, z];
+            addMember("ceilingJoist", "Viguetas de cielorraso", "cielorraso", a, b, u2 - u1 - 2 * ceiling.b, lv);
+          });
+        });
+        polygon.forEach((p, i) => {
+          const q = polygon[(i + 1) % polygon.length];
+          addMember("ceilingTrack", "Marco de cielorraso", "cielorraso", [p.x, p.y, z], [q.x, q.y, z], Math.hypot(q.x - p.x, q.y - p.y), lv);
+        });
+        const a = Math.abs(polygonArea(polygon));
+        const boardZ = zTop - ring.h - ceiling.h - 0.0125;
+        surfaces.push({ ...lv, layer: "cielorraso", material: "cielorraso", points: polygon.map((p) => [p.x, p.y, boardZ]), holes: [], area: a });
+        totals.ceilingArea += a;
+      });
+
       // ---------- Techo ----------
       if (isTop) {
         const roofOutline = offsetPolygon(footprint, project.roof.overhang);
@@ -829,7 +861,7 @@ export function generate(project) {
     const center = sf.points[0]?.slice(0, 2).map((v) => round(v, 6)).join(",") ?? "empty";
     sf.key = `L${project.levels[sf.level].id}:surface:${sf.material}:${sf.wallId ?? "grid"}:${sf.openingId ?? sf.face ?? center}`;
     sf.packageLabel = sf.material === "piso" ? (sf.level === 0 ? "Piso" : "Entrepiso")
-      : sf.material === "cubierta" ? "Techo" : sf.material === "escalon" ? "Escaleras" : sf.layer === "aberturas" ? "Aberturas" : "Muros";
+      : sf.material === "cubierta" ? "Techo" : sf.material === "cielorraso" ? "Cielorraso" : sf.material === "escalon" ? "Escaleras" : sf.layer === "aberturas" ? "Aberturas" : "Muros";
     sf.layers = surfaceLayers(project, sf);
   });
   solids.forEach((solid) => {

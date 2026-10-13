@@ -235,6 +235,8 @@ button, input, select { font: inherit; color: inherit; }
 }
 
 .viewer { position: absolute; inset: 0; }
+.pane--3d { display: flex; flex-direction: column; }
+.viewer-shell { position: relative; flex: 1; min-height: 160px; }
 .viewer canvas { width: 100% !important; height: 100% !important; display: block; touch-action: none; }
 .viewer__error { padding: 24px; color: var(--muted); }
 
@@ -409,6 +411,7 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
   .sidebar { order: 3; border-right: 0; border-top: 1px solid var(--line); }
   .stage { order: 1; grid-template-columns: 1fr; height: 72vh; }
   .stage[data-view="split"] { grid-template-rows: 1fr 1fr; }
+  .stage[data-view="split"] { height: auto; grid-template-rows: 280px minmax(460px, auto); }
   .pane--plan { border-right: 0; border-bottom: 1px solid var(--line); }
   .inspector { order: 2; grid-template-columns: 1fr; }
   .toolbar button span { display: none; }
@@ -444,6 +447,12 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
   .eng-print li { font-size: 8pt; }
   .eng-print tr, .eng-print h3 { break-inside: avoid; }
 }
+.eng-wind-view { flex: none; padding: 12px 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px 16px; border-top: 1px solid #aaa; background: #fff; }
+.eng-wind-view > label { min-width: 0; }
+.eng-wind-view select { width: 100%; min-width: 0; max-width: 100%; text-overflow: ellipsis; }
+.eng-wind-view .eng-note { grid-column: 1 / -1; overflow-wrap: anywhere; }
+.eng-table td small, .eng-table td code { overflow-wrap: anywhere; }
+@media (max-width: 600px) { .eng-wind-view { grid-template-columns: minmax(0, 1fr); padding: 12px; } }
 
 /* ---------- escaleras ---------- */
 .stair-sum { margin: 0 0 10px; font-size: 0.86rem; line-height: 1.5; }

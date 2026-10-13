@@ -174,6 +174,9 @@ export function computeBom(project, gen) {
   }
 
   // ---------- Aberturas ----------
+  if (t.ceilingArea > 0) {
+    add("Cielorraso", SHEETS.durlock.label, "u", sheetsNeeded(t.ceilingArea, "durlock", waste), `${n(t.ceilingArea, 2)} m² netos bajo cubierta; tubos incluidos en estructura y cortes`);
+  }
   const openings = new Map();
   project.levels.forEach((level) =>
     level.walls.forEach((w) =>
@@ -215,7 +218,7 @@ export function computeBom(project, gen) {
   stairRows.forEach((r) => add("Escaleras", r.material, r.unit, r.unit === "u" ? Math.ceil(r.quantity) : round(r.quantity * (1 + waste), 2), r.detail));
 
   // ---------- Fijaciones ----------
-  const sheetArea = t.floorDeckArea + t.mezzanineDeckArea * 2 + extSkin * 2 + extInner + intFaces + t.roofArea * 2;
+  const sheetArea = t.floorDeckArea + t.mezzanineDeckArea * 2 + extSkin * 2 + extInner + intFaces + t.roofArea * 2 + t.ceilingArea;
   if (sheetArea > 0) {
     add("Fijaciones", 'Tornillo autoperforante punta mecha 8 × 1 1/4"', "u", Math.ceil((sheetArea * 15) / 100) * 100, "≈15 por m² de placa y chapa");
   }

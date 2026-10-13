@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
+import { createHash } from "node:crypto";
 import { copyContour, createDefaultProject, createLevel, createRectangle, normalizeProject } from "../model.js";
 import { generate } from "../generator.js";
 import { computeBom } from "../bom.js";
@@ -44,15 +46,17 @@ test("peso por defecto contra suma manual de cortes, áreas netas y seis dados",
   const steel_kg = (6 * 2.718 + 2 * 17.4) * rhs(0.1, 0.1, 0.0032)
     + (105.21 + 10.5) * rhs(0.05, 0.1, 0.002)
     + 22.7 * ((0.1 + 2 * 0.05 + 0.03) * 0.002 * 7850)
-    + (14 * 2.9 + 13 * 3.501 + 13) * rhs(0.05, 0.1, 0.0032);
+    + (14 * 2.9 + 13 * 3.501 + 13) * rhs(0.05, 0.1, 0.0032)
+    // Fase 1: 16 tubos de 2,96 m + marco de 18 m (no cambia las piezas anteriores).
+    + (16 * 2.96 + 18) * rhs(.02, .04, .0016);
   // Exterior: 18 × (2,6 + 0,118) + 0,54 de relleno − 6,69 de aberturas.
   const skins_kg = 42.774 * (7 + 0.5 + 5.1) + 40.11 * (8.15 + 4)
     + 18 * (11.2 + 10) + 22.75 * Math.sqrt(1 + 0.02 ** 2) * (7 + 0.5 + 5.1)
-    + 18 * 6 + 4.8 * 15 + 1.89 * 15;
+    + 18 * 6 + 4.8 * 15 + 1.89 * 15 + 18 * 8.15; // placa real de cielorraso bajo cubierta
   near(r.totals.members_N, steel_kg * G0_m_s2);
   near(r.totals.surfaces_N, skins_kg * G0_m_s2);
   near(r.totals.foundation_N, 6 * 0.4 * 0.4 * 0.8 * 24000);
-  near(r.totals.total_N, 54986.52461549544);
+  near(r.totals.total_N, 57339.695926356944);
   assert.equal(r.statusLabel, "Revisar");
   assert.equal(r.issues.length, 0);
 });
@@ -112,7 +116,7 @@ test("densidad/pesos editables cambian solo sus contribuciones y no se certifica
   const a = calculate(p);
   p.engineering.materialOverrides.durlock = { value: 12, confirmed: true, source: "" };
   const b = calculate(p);
-  near(b.totals.surfaces_N - a.totals.surfaces_N, 40.11 * (12 - 8.15) * G0_m_s2);
+  near(b.totals.surfaces_N - a.totals.surfaces_N, (40.11 + 18) * (12 - 8.15) * G0_m_s2);
   near(b.totals.members_N, a.totals.members_N);
   assert.ok(b.assumptions.some((v) => v.id === "material:durlock"));
   p.engineering.materialOverrides.durlock.source = "Ficha de la placa realmente elegida";
@@ -146,7 +150,7 @@ test("localidades no inventan valores; entrada local pendiente no cambia el peso
   p.engineering.location.pg = 2;
   p.engineering.soil.qadm = 50;
   assert.deepEqual(calculate(p).totals, before.totals);
-  assert.ok(before.assumptions.some((a) => a.id === "input:location" && a.message.includes("no un valor local")));
+  assert.ok(before.assumptions.some((a) => a.id === "input:location" && a.message.includes("no valores locales certificados")));
 });
 
 test("un tabique tiene dos caras pero una sola aislación; al quitarla baja solo ese peso", () => {
@@ -244,10 +248,13 @@ test("interfaz escapa fuentes y nombres; muestra alcance, supuestos y resultado 
   assert.ok(!html.includes("APROBADO"));
 });
 
-test("regresión completa y determinista del motor base", () => {
+test("regresión completa y determinista de fase 1 (JSON comprimido sin pérdida)", () => {
   const p = fixedProject();
   const a = calculate(p);
   assert.deepEqual(calculate(structuredClone(p)), a);
-  const expected = JSON.parse(readFileSync(new URL("./fixtures/default-phase-0.json", import.meta.url), "utf8"));
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/default-phase-1.json", import.meta.url), "utf8"));
+  // Fallo corto antes del diff multimillonario. La compresión es sólo para el fixture, no para la PWA.
+  assert.equal(createHash("sha256").update(JSON.stringify(a)).digest("hex"), fixture.sha256);
+  const expected = JSON.parse(gunzipSync(Buffer.from(fixture.result_gzip_base64, "base64")).toString());
   assert.deepEqual(JSON.parse(JSON.stringify(a)), expected);
 });

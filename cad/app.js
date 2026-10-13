@@ -9,8 +9,11 @@ import { STAIR_RULES } from "./data/stair-rules.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
 import { pointKey, wallDir, wallLength } from "./geometry.js";
 import { runEngineering } from "./engineering/engine.js";
-import { engineeringInputsHtml, engineeringPrintHtml, engineeringResultHtml, engineeringSummaryHtml } from "./engineering/panel.js";
+import { engineeringInputsHtml, engineeringUsageHtml, engineeringPrintHtml, engineeringResultHtml, engineeringSummaryHtml } from "./engineering/panel.js";
 import { MATERIALS } from "./engineering/data/materials.js";
+import { LOCATIONS, locationWind_m_s } from "./engineering/data/locations.js";
+import { windCasePatches } from "./engineering/wind.js";
+import { formatPressure } from "./engineering/units.js";
 
 const PRICES_KEY = "modularlive_prices"; // compartido con la calculadora rápida
 const $ = (sel) => document.querySelector(sel);
@@ -103,7 +106,7 @@ try {
   $("#viewer").innerHTML = `<p class="viewer__error">No se pudo iniciar el 3D en este dispositivo (${escapeHtml(error.message)}).</p>`;
 }
 
-const layerState = Object.fromEntries(LAYERS.map((l) => [l.id, !["cerramientos", "cubierta"].includes(l.id)]));
+const layerState = Object.fromEntries(LAYERS.map((l) => [l.id, !["cerramientos", "cubierta", "cielorraso"].includes(l.id)]));
 function renderLayerToggles() {
   $("#layerToggles").innerHTML = LAYERS.map(
     (l) => `<label class="chip"><input type="checkbox" data-layer="${l.id}" ${layerState[l.id] ? "checked" : ""}/> ${l.label}</label>`
@@ -120,12 +123,42 @@ document.querySelectorAll("[data-preset]").forEach((btn) =>
   btn.addEventListener("click", () => {
     const finished = btn.dataset.preset === "terminado";
     LAYERS.forEach((l) => {
-      layerState[l.id] = finished ? l.id !== "estructura" : !["cerramientos", "cubierta"].includes(l.id);
+      layerState[l.id] = finished ? l.id !== "estructura" : !["cerramientos", "cubierta", "cielorraso"].includes(l.id);
     });
     renderLayerToggles();
   })
 );
 $("#frame3d").addEventListener("click", () => viewer?.frame());
+
+/** Aplica al visor el caso seleccionado; el selector no altera ni recalcula el proyecto. */
+function renderWindView() {
+  if (!engineering) return;
+  const mode = $("#windViewMode").value;
+  const select = $("#windCaseSelect");
+  const previous = select.value;
+  select.innerHTML = engineering.wind.cases.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)} · ${escapeHtml(c.id)}</option>`).join("");
+  if ([...select.options].some((op) => op.value === previous)) select.value = previous;
+  $("#windCaseField").hidden = mode !== "main";
+  let patches = [], pointEntries = [];
+  const minimumCase = select.value.startsWith("W:min:");
+  if (mode === "main") {
+    patches = windCasePatches(engineering.wind, select.value);
+    pointEntries = engineering.wind.cases.find((c) => c.id === select.value)?.pointEntries ?? [];
+  } else if (mode.startsWith("local-")) {
+    patches = engineering.wind.components.map((p) => {
+      const pressure_Pa = mode === "local-positive" ? p.positive_Pa : p.negative_Pa;
+      return { ...p, pressure_Pa, force_N: p.normal.map((n) => -pressure_Pa * p.area_m2 * n) };
+    });
+  }
+  viewer?.setWindPatches(patches, pointEntries);
+  viewer?.setPointLoads(engineering.entries.filter((r) => r.kind === "extra"));
+  const lo = Math.min(0, ...patches.map((p) => p.pressure_Pa)), hi = Math.max(0, ...patches.map((p) => p.pressure_Pa));
+  $("#windLegend").textContent = mode === "model" ? "Cielorraso: activá su capa para ver placa y estructura. Los equipos aportados llevan una flecha vertical."
+    : `${engineering.wind.edition} · oscuro: succión (−); claro: presión (+). Flechas normales a la superficie. ${formatPressure(lo)} a ${formatPressure(hi)}. ${mode === "main" ? minimumCase ? "Mínimo horizontal sobre proyección vertical; no es succión de techo." : "Caso simultáneo del sistema principal." : "C&R: envolvente local por componente, no simultánea ni sumable al viento global."} Escenario con supuestos.`;
+  $("#windTooltip").textContent = "";
+}
+$("#windViewMode").addEventListener("change", renderWindView);
+$("#windCaseSelect").addEventListener("change", renderWindView);
 
 // ---------- regeneración ----------
 let lastLevelCount = null;
@@ -137,6 +170,7 @@ function regenerate() {
   engineering = runEngineering(project, gen);
   editor.setGeneration(gen);
   viewer?.build(gen);
+  renderWindView();
   if (lastLevelCount !== null && lastLevelCount !== project.levels.length) viewer?.frame();
   lastLevelCount = project.levels.length;
   viewer?.highlightWall(editor.getSelection()?.wallId ?? null);
@@ -146,7 +180,9 @@ function regenerate() {
   renderSelection();
   renderLevelBar();
   $("#engineeringSummary").innerHTML = engineeringSummaryHtml(engineering);
+  const openExtra = $("#extraLoadsEditor")?.open;
   $("#engineeringPanel").innerHTML = engineeringResultHtml(engineering, project);
+  if (openExtra) $("#extraLoadsEditor").open = true;
   syncSettingsForm();
   $("#undoBtn").disabled = !store.canUndo();
   $("#redoBtn").disabled = !store.canRedo();
@@ -193,9 +229,11 @@ function renderFoundationFields() {
 }
 
 function syncSettingsForm() {
+  const usage = $("#engineeringUsageInputs");
+  if (usage && !usage.contains(document.activeElement)) usage.innerHTML = engineeringUsageHtml(store.project);
   renderFoundationFields();
   $("#levelHeight").dataset.path = `levels.${activeLevel()}.height`;
-  $("#levelHeightLabel").textContent = `Altura interior · ${levelOf(store.project).name} (m)`;
+  $("#levelHeightLabel").textContent = `Altura al bastidor superior · ${levelOf(store.project).name} (m)`;
   $("#floorSpacingField").hidden = store.project.foundation.type === "platea";
   const nameInput = $("#projectName");
   if (document.activeElement !== nameInput) nameInput.value = store.project.name;
@@ -230,7 +268,23 @@ $("#settingsPanel").addEventListener("change", (e) => {
       }
       p.engineering.inputIssues = p.engineering.inputIssues.filter((message) => !message.includes(path));
       // Reconocer un preset no inventa datos locales ni elimina el escenario ingresado.
-      if (path === "engineering.location.preset") p.engineering.location.source = "";
+      if (["engineering.location.preset", "engineering.codeEdition", "engineering.importance"].includes(path)) {
+        const edition = p.engineering.codeEdition;
+        p.engineering.location.V = locationWind_m_s(p.engineering.location.preset, edition, p.engineering.importance) ?? (edition === "2025" ? p.engineering.importance === "II" || p.engineering.importance === "I" ? 80.8 : 88.7 : 58);
+        p.engineering.location.windEdition = edition;
+        p.engineering.location.windRisk = p.engineering.importance;
+        p.engineering.location.confirmed = false;
+        p.engineering.location.source = "";
+        p.engineering.jurisdictionConfirmed = false;
+        if (path === "engineering.location.preset") {
+          p.engineering.location.pg = LOCATIONS[value]?.pg ?? .3;
+          p.engineering.location.seismicZone = 0;
+        }
+      }
+      if (path === "engineering.jurisdiction") p.engineering.jurisdictionConfirmed = false;
+      if (path.startsWith("engineering.snow.") && !path.endsWith(".confirmed")) p.engineering.snow.confirmed = false;
+      if (path.startsWith("engineering.seismic.") && !path.endsWith(".confirmed")) p.engineering.seismic.confirmed = false;
+      if (path.startsWith("engineering.wind.") && !path.endsWith(".serviceConfirmed")) p.engineering.wind.serviceConfirmed = false;
     }
   });
 });
@@ -610,6 +664,14 @@ $("#engineeringSummary").addEventListener("click", (e) => {
 });
 $("#engineeringPanel").addEventListener("change", (e) => {
   const el = e.target;
+  if (el.dataset.extraIndex !== undefined) {
+    const index = Number(el.dataset.extraIndex), field = el.dataset.extraField;
+    let value = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
+    if (el.type === "number" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(value))) { toast("Ingresá una coordenada o fuerza válida."); regenerate(); return; }
+    if (field === "force_N") value *= 1000;
+    store.update((p) => { const load = p.engineering.extraLoads[index]; if (!load) return; load[field] = value; if (field !== "confirmed") load.confirmed = false; });
+    return;
+  }
   const id = el.dataset.material;
   const field = el.dataset.materialField;
   if (!MATERIALS[id] || !["value", "source", "confirmed"].includes(field)) return;
@@ -625,10 +687,18 @@ $("#engineeringPanel").addEventListener("change", (e) => {
   });
 });
 $("#engineeringPanel").addEventListener("click", (e) => {
+  if (e.target.closest("[data-extra-add]")) {
+    const lv = gen.levels[activeLevel()], footprint = lv.footprint;
+    if (!footprint) { toast("Cerrá el contorno del nivel para ubicar un equipo."); return; }
+    const x = footprint.reduce((s, p) => s + p.x, 0) / footprint.length, y = footprint.reduce((s, p) => s + p.y, 0) / footprint.length;
+    store.update((p) => p.engineering.extraLoads.push({ id: newId("load"), levelId: p.levels[activeLevel()].id, target: "floor", x_m: x, y_m: y, force_N: 1000, label: "Equipo permanente", source: "", confirmed: false }));
+  }
+  const remove = e.target.closest("[data-extra-remove]");
+  if (remove) store.update((p) => p.engineering.extraLoads.splice(Number(remove.dataset.extraRemove), 1));
   const id = e.target.closest("[data-material-reset]")?.dataset.materialReset;
   if (MATERIALS[id]) store.update((p) => { delete p.engineering.materialOverrides[id]; });
   if (e.target.closest("#engineeringJsonBtn")) {
-    download(`${slug(store.project.name)}-peso-propio.json`, JSON.stringify({ project: store.project, result: engineering }, null, 2), "application/json");
+    download(`${slug(store.project.name)}-cargas-ingenieria.json`, JSON.stringify({ project: store.project, result: engineering }, null, 2), "application/json");
   }
 });
 
@@ -643,9 +713,9 @@ $("#fitBtn").addEventListener("click", () => {
 $("#zoomIn").addEventListener("click", () => editor.zoom(1.25));
 $("#zoomOut").addEventListener("click", () => editor.zoom(0.8));
 
-document.querySelectorAll("[data-view]").forEach((b) =>
+document.querySelectorAll("button[data-view]").forEach((b) =>
   b.addEventListener("click", () => {
-    document.querySelectorAll("[data-view]").forEach((x) => x.classList.toggle("is-active", x === b));
+    document.querySelectorAll("button[data-view]").forEach((x) => x.classList.toggle("is-active", x === b));
     $("#stage").dataset.view = b.dataset.view;
     requestAnimationFrame(() => {
       editor.render();

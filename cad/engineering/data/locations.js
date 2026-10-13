@@ -22,3 +22,31 @@ export const LOCATIONS = Object.fromEntries(cities.map(([id, label]) => [id, {
   label, V: null, pg: null, seismicZone: null, frostDepth: null,
   status: "a confirmar", source: LOCATION_SOURCE
 }]));
+
+// CIRSOC 102-2025 Fig.1.5-1D, velocidades I / II / III-IV (m/s).
+// Madryn, Trelew y Esquel no están en esa tabla. La escala del mapa consultado
+// no permite una lectura local suficientemente precisa: quedan expresamente a confirmar.
+const velocities2025 = {
+  "comodoro-rivadavia": [77.1, 82.7, 88.7], rawson: [68.5, 73.5, 78.8],
+  "buenos-aires": [51.4, 55.1, 59.1], "la-plata": [52.5, 56.3, 60.4], catamarca: [49.1, 52.7, 56.5],
+  resistencia: [51.4, 55.1, 59.1], cordoba: [51.4, 55.1, 59.1], corrientes: [52.5, 56.3, 60.4],
+  parana: [59.4, 63.7, 68.3], formosa: [51.4, 55.1, 59.1], "san-salvador-de-jujuy": [38.8, 41.6, 44.7],
+  "santa-rosa": [57.1, 61.2, 65.7], "la-rioja": [50.3, 53.9, 57.8], mendoza: [44.6, 47.8, 51.2],
+  posadas: [51.4, 55.1, 59.1], neuquen: [54.8, 58.8, 63], viedma: [68.5, 73.5, 78.8], salta: [40, 42.9, 46],
+  "san-juan": [45.7, 49, 52.5], "san-luis": [51.4, 55.1, 59.1], "rio-gallegos": [68.5, 73.5, 78.8],
+  "santa-fe": [58.3, 62.5, 67], "santiago-del-estero": [49.1, 52.7, 56.5], ushuaia: [68.5, 73.5, 78.8], "san-miguel-de-tucuman": [45.7, 49, 52.5]
+};
+for (const [id, values] of Object.entries(velocities2025)) {
+  LOCATIONS[id].wind2025 = values;
+  LOCATIONS[id].windSource = "CIRSOC 102-2025, Figura 1.5-1D (ciudades); confirmar emplazamiento, exposición y topografía";
+}
+// 104-2005, Tabla 1.4, Chubut. No se extrapolan los datos de Telsen a Madryn.
+LOCATIONS["comodoro-rivadavia"].pg = .5;
+LOCATIONS.esquel.pg = 1.2;
+for (const id of ["comodoro-rivadavia", "esquel"]) LOCATIONS[id].snowSource = "CIRSOC 104-2005, Tabla 1.4 (Chubut)";
+
+/** Valor de tabla por edición y riesgo; null obliga a confirmar la lectura local del mapa. */
+export function locationWind_m_s(preset, edition, risk) {
+  const values = LOCATIONS[preset]?.wind2025;
+  return edition === "2025" && values ? values[risk === "I" ? 0 : risk === "II" ? 1 : 2] : null;
+}

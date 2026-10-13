@@ -43,13 +43,13 @@ async function verifyWidth(page) {
 try {
   await waitForServer();
   const { page, context } = await openPage({ width: 1440, height: 1000 });
-  assert.match(await page.locator("#engineeringSummary").innerText(), /36,55 kN/);
+  assert.match(await page.locator("#engineeringSummary").innerText(), /38,91 kN/);
   assert.equal(await page.locator("#viewer canvas").count(), 1);
   assert.equal(await page.locator(".viewer__error").count(), 0);
   await page.getByRole("button", { name: "Ingeniería", exact: true }).click();
   await page.locator('input[data-material="durlock"][data-material-field="value"]').fill("12");
   await page.locator('input[data-material="durlock"][data-material-field="value"]').press("Tab");
-  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("38,07 kN"));
+  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("41,1 kN"));
   await page.locator('input[data-material="durlock"][data-material-field="source"]').fill("Ficha de prueba, placa elegida");
   await page.locator('input[data-material="durlock"][data-material-field="source"]').press("Tab");
   await page.locator('input[data-material="durlock"][data-material-field="confirmed"]').check();
@@ -58,26 +58,62 @@ try {
   assert.match(await material.innerText(), /Dato aportado/);
   await page.reload();
   await page.locator("#engineeringSummary [data-show-engineering]").waitFor();
-  assert.match(await page.locator("#engineeringSummary").innerText(), /38,07 kN/);
+  assert.match(await page.locator("#engineeringSummary").innerText(), /41,1 kN/);
   assert.equal(await page.locator("#undoBtn").isEnabled(), false); // historial reiniciado al recargar
   await page.getByRole("button", { name: "Ingeniería", exact: true }).click();
   await page.locator('[data-material-reset="durlock"]').click();
-  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("36,55 kN"));
+  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("38,91 kN"));
   await page.locator("#undoBtn").click();
-  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("38,07 kN"));
+  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("41,1 kN"));
   await page.locator("#redoBtn").click();
-  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("36,55 kN"));
+  await page.waitForFunction(() => document.querySelector("#engineeringSummary").textContent.includes("38,91 kN"));
+  // Presiones reales, casos torsionales y control de unidades del visor.
+  await page.locator('#windViewMode').selectOption('main');
+  assert.equal(await page.locator('#windCaseSelect option').count(), 132);
+  await page.waitForFunction(() => document.querySelector('#windLegend').textContent.includes('2025'));
+  await page.locator('#windCaseSelect').selectOption({ index: 16 }); // primer caso torsional
+  await page.locator('#viewer').scrollIntoViewIfNeeded();
+  await page.screenshot({ path: `${output}desktop-wind.png` });
+  await page.locator('#windViewMode').selectOption('local-negative');
+  assert.match(await page.locator('#windLegend').innerText(), /envolvente local/);
+  await page.screenshot({ path: `${output}desktop-local-pressure.png` });
+  await page.locator('#windViewMode').selectOption('model');
+  // La carga puntual se conserva en el proyecto y desaparece al quitar el equipo.
+  await page.locator('#extraLoadsEditor summary').click();
+  await page.locator('[data-extra-add]').click();
+  await page.waitForFunction(() => document.querySelector('#engineeringSummary').textContent.includes('39,91 kN'));
+  await page.locator('[data-extra-index="0"][data-extra-field="force_N"]').fill('10.5');
+  await page.locator('[data-extra-index="0"][data-extra-field="force_N"]').press('Tab');
+  await page.waitForFunction(() => document.querySelector('#engineeringSummary').textContent.includes('49,41 kN'));
+  await page.locator('[data-extra-remove="0"]').click();
+  await page.waitForFunction(() => document.querySelector('#engineeringSummary').textContent.includes('38,91 kN'));
+  await page.locator("#engineeringSettings > summary").click();
+  // La opción de edición cambia la base del viento y persiste la intención del usuario.
+  await page.locator('select[data-path="engineering.codeEdition"]').selectOption('2005');
+  await page.waitForFunction(() => document.querySelector('#engineeringSummary').textContent.includes('Viento 2005'));
+  assert.equal(await page.locator('input[data-path="engineering.location.V"]').inputValue(), '58');
+  await page.locator('select[data-path="engineering.codeEdition"]').selectOption('2025');
+  await page.waitForFunction(() => document.querySelector('#engineeringSummary').textContent.includes('Viento 2025'));
+  await page.locator('#engineeringInputs summary').filter({ hasText: 'Uso y cargas permanentes' }).click();
+  await page.locator('select[data-path="engineering.usage.0.use"]').selectOption('oficina');
+  await page.waitForFunction(() => document.querySelector('#engineeringPanel').textContent.includes('oficina 2,5'));
+  await page.locator('select[data-path="engineering.usage.0.use"]').selectOption('vivienda');
+  await page.waitForFunction(() => document.querySelector('#engineeringPanel').textContent.includes('vivienda 2'));
   await verifyWidth(page);
   await page.getByRole("button", { name: "Ingeniería", exact: true }).click();
-  await page.getByRole("heading", { name: "Peso propio del modelo", exact: true }).scrollIntoViewIfNeeded();
+  await page.getByRole("heading", { name: "Cargas del modelo · edición 2025", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${output}desktop.png` });
-  checks.push("Escritorio: 3D, peso inicial, edición con fuente, guardado, restablecer y deshacer/rehacer.");
+  checks.push("Escritorio: 3D y presiones/torsión/C&R, cargas puntuales, edición 2005/2025, usos, pesos con fuente, guardado y deshacer/rehacer.");
 
   const mobile = await openPage({ width: 390, height: 844 });
   await mobile.page.screenshot({ path: `${output}mobile-initial.png` });
   await verifyWidth(mobile.page);
+  await mobile.page.locator('#windViewMode').selectOption('local-negative');
+  await mobile.page.locator('#viewer').scrollIntoViewIfNeeded();
+  await mobile.page.screenshot({ path: `${output}mobile-wind.png` });
+  await verifyWidth(mobile.page);
   await mobile.page.getByRole("button", { name: "Ingeniería", exact: true }).click();
-  await mobile.page.getByRole("heading", { name: "Peso propio del modelo", exact: true }).scrollIntoViewIfNeeded();
+  await mobile.page.getByRole("heading", { name: "Cargas del modelo · edición 2025", exact: true }).scrollIntoViewIfNeeded();
   await mobile.page.screenshot({ path: `${output}mobile-engineering.png` });
   await verifyWidth(mobile.page);
   checks.push("Celular 390 × 844: diseñador y detalle de Ingeniería sin desborde horizontal.");
@@ -89,7 +125,7 @@ try {
   await context.setOffline(true);
   await page.reload();
   await page.locator("#engineeringSummary [data-show-engineering]").waitFor();
-  assert.match(await page.locator("#engineeringSummary").innerText(), /36,55 kN/);
+  assert.match(await page.locator("#engineeringSummary").innerText(), /38,91 kN/);
   checks.push("PWA sin conexión: el cálculo carga con todos sus módulos nuevos en caché.");
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ checks, errors }, null, 2));

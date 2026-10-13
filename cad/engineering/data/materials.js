@@ -73,6 +73,7 @@ export function surfaceLayers(project, surface) {
       ? [layer("osb_18"), layer("aislacion_piso")]
       : [layer("osb_18"), layer("aislacion_entrepiso"), layer("durlock")];
     case "vidrio": return [layer("vidrio")];
+    case "cielorraso": return [layer("durlock")];
     case "escalon": return [layer(surface.tread === "madera" ? "escalon_madera" : "escalon_chapa")];
     case "puerta": return [layer("puerta")];
     // La platea se pesa como sólido, no como superficie: evita contar hormigón dos veces.

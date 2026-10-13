@@ -34,47 +34,64 @@ El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, 
 - **Cerramientos**: placas, aislación, barrera de viento y revestimientos por superficie neta (descontando aberturas e incluyendo hastiales).
 - **Lista de cortes**: optimiza los cortes sobre la barra comercial (6 m por defecto, con espesor de corte) y marca los empalmes de piezas más largas que la barra.
 
-### Ingeniería · fase 0 (base)
+### Ingeniería · fase 1 (cargas)
 
-ActivaModular es un proyecto de **Jesús Olguín · jesus.olguin**. La especificación y dirección del proyecto son suyas; la implementación asistida de esta fase se identifica como **Astra el Evangelista**. Es asistencia de desarrollo, no una firma de responsabilidad profesional.
+Proyecto, especificación y dirección: **Jesús Olguín · jesus.olguin**. Implementación asistida: **ingeniero Astra el Evangelista**. Los créditos se conservan en interfaz, impresión y commits; no constituyen firma profesional.
 
-La pestaña **Ingeniería** pesa el material **instalado** del mismo modelo que se dibuja. Las barras comerciales sobrantes y la merma de compra no son cargas de la vivienda. Por eso el resumen de compra y el peso propio pueden tener valores distintos.
+La pestaña **Ingeniería** calcula el material instalado y acciones preliminares. **Revisar** es el estado de esta fase: aún no hay análisis del pórtico, reacciones, dimensionado ni verificación de estabilidad. El selector bajo el 3D muestra los casos principales o la envolvente local de componentes y revestimientos. Oscuro indica succión, claro presión; las flechas indican el sentido. Al apuntar una zona se muestra su presión.
 
-- Cada barra conserva `id` para compatibilidad y agrega `key`, basada en nivel, rol, muro, función y posición. Editar otros muros o reordenar aberturas no desplaza sus claves. Una modificación de su propia posición puede cambiar su identidad. Las claves llegan a la lista de cortes.
-- Cada superficie identifica sus capas y áreas netas. Un tabique tiene dos caras de revestimiento y una sola aislación. En cubierta, placas y chapa siguen la pendiente con alero; la aislación usa la planta cubierta, igual que el cómputo actual.
-- `cad/engineering/loads.js` registra cada contribución: entrada → fórmula → masa en kg → peso en N. La interfaz muestra kN y también kgf/tf, con gravedad normal `g₀ = 9,80665 m/s²`.
-- La fundación se pesa desde sus sólidos geométricos y se informa **separada**. El peso unitario equivalente del hormigón armado ya representa el conjunto; no se vuelve a sumar la armadura. Esto no comprueba que los dados estén vinculados ni que puedan retener levantamiento.
-- Podés editar masas y densidades de los materiales usados. Un dato permanece como supuesto hasta que cargues su fuente y confirmación. Cambiar resistencia `Fy`, `E` o `f'c` no cambia la masa; cambiar densidad sí.
-- Ubicación, escenario climático, suelo, acero y hormigón se guardan en `project.engineering`, incluido al abrir diseños anteriores, deshacer/rehacer y exportar JSON. Los presets locales no inventan valores del mapa: sus datos están **a confirmar**. El escenario de 58 m/s proviene de la referencia de Telsen del encargo y **no es una velocidad confirmada para Puerto Madryn**.
-- El detalle JSON incluye todas las entradas, contribuciones y supuestos. La impresión incluye un extracto del peso modelado, alcance pendiente y supuestos. La memoria estructural completa corresponde a la fase 8.
+- Barras con `key` estable: peso por corte real y sección nominal. Las claves llegan al BOM y a la lista de cortes.
+- Superficies con capas: pesos netos sin merma de compra. Aislación de tabique una sola vez, chapa sobre pendiente y alero, lana sobre planta cubierta.
+- **Cielorraso bajo cubierta real:** placa de yeso de 12,5 mm, 16 tubos de 2,96 m y marco perimetral de 18 m en el módulo inicial. Tubo nominal 40×20×1,6 mm, separación ≤0,40 m; apoyos y secciones pendientes de cálculo. Se dibuja en su capa, se corta y se compra. Sólo se genera bajo techos; no duplica el paquete de cielorraso del entrepiso. Reduce la altura libre bajo techo a aproximadamente **2,4475 m** en el módulo inicial: la altura del formulario se mide hasta el bastidor superior.
+- Fundación pesada desde sus sólidos, **separada de las cargas de la vivienda**. Los 24 kN/m³ de hormigón son un supuesto editable del encargo; no se acredita que los dados estén vinculados frente a levantamiento.
+- Equipos permanentes: nivel, piso/cubierta, coordenadas, fuerza en kN, fuente y confirmación. Aparecen como flechas en 3D y cargas D; no se inventa material estructural en el BOM. Una carga fuera de la superficie deja un diagnóstico y no se aplica.
+- Edición `engineering.codeEdition`: **2025 por defecto**, o 2005 según jurisdicción. El cambio invalida la confirmación y evita reutilizar una velocidad de otra edición. El riesgo selecciona el mapa 2025; en 2005 permanece el factor I. La adopción provincial/municipal es una entrada a confirmar.
+- Localidades: velocidades 2025 de la tabla oficial de ciudades, por riesgo, y nieve tabulada de Comodoro/Esquel. **Puerto Madryn, Trelew y Esquel no tienen V local confirmada** en esta entrega: el mapa consultado no permitió lectura suficientemente precisa. El valor inicial **80,8 m/s es un escenario supuesto, no la velocidad de Puerto Madryn**. Los 58 m/s de Telsen se mantienen sólo como referencia 2005. Zona sísmica, helada, topografía, exposición y suelo requieren confirmación específica.
+- Densidades y masas editables con fuente. Cambiar Fy/E/f'c no cambia masa. Las unidades internas son N, m, Pa, kg; se muestran kN, kgf/tf y kN/m².
+- JSON: entradas, fórmulas, puntos de aplicación, fuerzas, momentos, presiones, combinaciones y supuestos. La impresión es un extracto de cargas; la memoria completa corresponde a fase 8.
 
-**Ejemplo reproducible, módulo por defecto 3 × 6 m:**
+**Módulo inicial 3 × 6 m, sin equipos adicionales:**
 
 | Parte | Cantidad base | Peso modelado |
 | --- | --- | --- |
-| Barras instaladas | 130 piezas, con sus cortes reales | 17,893 kN |
-| Capas y hojas de aberturas | áreas netas del generador | 18,662 kN |
-| Vivienda (sin fundación) | suma de las dos filas anteriores | **36,555 kN (3,727 tf)** |
-| Fundación | 6 × 0,40 × 0,40 × 0,80 = 0,768 m³, a 24 kN/m³ **supuestos** | **18,432 kN (1,880 tf)** |
-| Total modelado | vivienda + fundación | **54,987 kN (5,607 tf)** |
+| Barras instaladas | 150 piezas, incluyendo 20 del cielorraso | 18,808 kN |
+| Capas y hojas de aberturas | incluye 18 m² de placa de cielorraso | 20,100 kN |
+| Vivienda | suma instalada | **38,908 kN (3,967 tf)** |
+| Fundación | 6 × 0,40 × 0,40 × 0,80 = 0,768 m³ | **18,432 kN (1,880 tf)** |
+| Total modelado | vivienda + fundación | **57,340 kN (5,847 tf)** |
 
-La suma manual de largos, áreas y pesos unitarios está documentada en `cad/engineering/base.test.js`. El resultado completo, determinista y sin fechas variables está fijado en `cad/engineering/fixtures/default-phase-0.json`.
+La fase 0 pesaba 54,987 kN en total. La diferencia intencional es **2,353171 kN**: 65,36 m de tubos nominales × 1,426816 kg/m × g₀ más 18 m² × 8,15 kg/m² × g₀. No cambian las cantidades originales de columnas, viguetas o cabios. La cuenta manual está en `base.test.js`. El snapshot histórico de fase 0 se conserva; `fixtures/default-phase-1.json` guarda el resultado completo, comprimido sin pérdida y con SHA-256, sólo para pruebas.
 
-### Fuentes, supuestos y reglamentos
+### Cómo calcula las acciones
 
-El método de peso por superficies/volúmenes sigue **CIRSOC 101-25, 3.1.1 y 3.1.2**, con el antecedente CIRSOC 101-2005, 3.1. Los valores de referencia y sus fuentes viven en `cad/engineering/data/materials.js`; no certifican los productos de una obra.
+| Acción | Reglamento y alcance implementado |
+| --- | --- |
+| D | CIRSOC 101-2025 §§3.1.1/3.1.2; antecedente 101-2005 §3.1. Masas reales modeladas y equipos aportados; no incluye equipos no cargados, acabados extra ni herrajes aún sin piezas. |
+| L | Tabla 4.1 de 101-2025/2005: vivienda 2 kPa, oficina 2,5, depósito liviano 6, terraza privada 3/pública 5, balcón de vivienda 3 hasta 10 m²/5 después, escaleras 5 como criterio general. La función de reducción por elemento respeta KLL·At≥37 m², mínimos y prohibiciones; la carga global **no se reduce** antes del análisis tributario. |
+| Lr | 101-2025 §4.8.1(a/b): distingue cubierta liviana ≤0,5 kPa incluyendo su estructura/placa, con R1/R2 de área y pendiente. Para el techo inicial al 2 %, **0,765 kPa**. 101-2005 §4.9.1 da 0,96 kPa sin reducción. At=1 m² en la acción global asegura R1=1; no se usa toda la cubierta como área de una fijación. |
+| S | CIRSOC 104-2005 §§3/3.4/4: 0,7CeCtIpg, mínimo de baja pendiente y Cs=1 sin aprovechar evacuación. Ct=1,2 inicial es supuesto. Con pg=0,30 kPa resulta **S=0,30 kPa**, no 0,252. Acumulación triangular de §7.1 sobre cubierta inferior, superpuesta a balanceada y truncada en el borde; hd usa cotas superiores tabuladas de Fig.9, redondeo hacia arriba y siguiente intervalo, **no interpolación exacta**. Fuera de pg≤5 kPa/lu≤120 m se informa cálculo específico pendiente. Nieve no balanceada a dos aguas: §6.1, ambos sentidos; parciales por paño completo/resto a mitad, sin sustituir futuros patrones por tramo. |
+| W 2025 | CIRSOC 102-2025: qz=0,613KzKztKdKeV² (§1.13.2), Kd=0,85, Kz de Tabla1.13-1, Ke=1 permitido en §1.12. G=0,85 supone rigidez pendiente. Método direccional §2.4.1/Fig.2.4-1, cuatro sentidos, GCpi±0,18/0,55 (Tabla1.11-1), alternativas de Cp y casos torsionales1–4 de Fig.2.4-8. Diagonales conservan la presión de cubierta más desfavorable, sin sumar dos techos. Mínimo horizontal §2.1.5; corrección del corte sin beneficio de techo (Fig.2.4-1 nota7). Alero: presión inferior+0,8, sin aplicar presión interna fuera del edificio. |
+| W 2005 | 102-2005 §5.10 ec.(13), Tabla5, I de Tabla1; Fig.3 y Fig.5B/7A para techo. No se aplican los casos torsionales2/4 de Fig.9 a edificios≤20 m. Mínimos de §1.4. |
+| C&R | 102-2025 §5.3.2/Fig.5.3-1,2A–D,5A/B y Tablas C5.3-1 a C5.3-5; 2005 Fig.5A/5B/7A. Curvas por área efectiva con interpolación logarítmica; zonas de esquinas, bordes, cumbrera y aleros. Mínimo local **0,80 kPa** en 2025 (§5.2.2), 0,50 en 2005 (§1.4.2). La envolvente local **no se suma** como viento global. |
+| E | INPRES-CIRSOC103 ParteI-2018: sitio y grupo de riesgo propios (§2.4), espectros de Tablas3.1/3.2, C de §6.2.1 y período aproximado de otros sistemas ec.6.8, peso con participaciones de Tabla3.3, reparto Wi·hi y 10 % superior si corresponde. Ev± (ec.3.10) y excentricidad±5 %. En zona0 se informa exención condicionada hasta3 pisos y12 m; fuera de ella se genera mínimo horizontal1,5 %, sin acreditar requisitos de fundación. Ao en zona0 y sitio SF requieren estudio específico: E no se reemplaza por cero. |
+| Combinaciones | ELU 101-2025 §2.3.2 y102-2025 B.3.2: **W=1,0**, frente a 301-2005 A.4 con W=1,6 conservador (nota permite1,5). E también se combina con103-I §3.7. Lr/S son alternativos; se generan omisiones de variables favorables. Servicio2025 B.4.2: Wa usa (Vserv/V)², con Vserv propia supuesta/confirmada. En2005 W nominal completo es un criterio de proyecto conservador declarado. |
 
-- [CIRSOC 101-25, INTI](https://www.inti.gob.ar/assets/uploads/files/cirsoc/02-Reglamento-tramite-de-aprobacion/Reglamento-CIRSOC-101-25.pdf): definición de carga permanente y uso de pesos reales. Los pesos estabilizantes requieren especial cuidado para no sobreestimarlos.
-- [Resolución SOP 11/2026, artículos 1 y 2](https://www.inti.gob.ar/assets/uploads/files/cirsoc/resoluciones-legales/03/RESOL-2026-11-APN-SOP-MEC_CIRSOC.pdf): puso en vigencia nacional CIRSOC 101-25, 102-25, 200-24 y 201-25 e invitó a las jurisdicciones a adherir. Su aplicación provincial y municipal debe confirmarse para cada obra. La mención del proyecto de viento 102-24 en el encargo no se trata como estado vigente.
-- [Knauf ST 12,5](https://knauf.com/es-AR/p/producto/placa-de-yeso-st-12.5-10003_2001): referencia de 8,15 kg/m². Sigue siendo supuesto hasta confirmar marca y placa instalada.
-- [EGGER OSB 3](https://www.egger.com/en/building-products/range/products/osb3): densidad mínima declarada de 600 kg/m³; un mínimo no fija el peso real del tablero. Se adoptan pesos nominales editables, identificados como supuestos.
-- Las chapas, panel sándwich, aislaciones, membranas y hojas de aberturas usan referencias **supuestas** del encargo o hipótesis explícitas; requieren fichas de producto. Los tubos usan la fórmula nominal actual, sin radios ni tolerancias; el catálogo ampliado con datos de fabricante corresponde a la fase 3.
-- Los 24 kN/m³ del hormigón se conservan como **supuesto del encargo**, no como valor reglamentario de hormigón armado: [CIRSOC 101-2005, Tabla 3.1](https://www.inti.gob.ar/assets/uploads/files/cirsoc/vigencia-2013/area100/Reglamento-cirsoc101-completo.pdf) indica 25 kN/m³ para armado. Se puede cargar el peso unitario especificado para el caso real.
-- Suelo inicial `qadm = 100 kPa` es un supuesto hasta contar con estudio de suelos. Resistencias de acero y hormigón también quedan a confirmar. Ninguna de estas entradas genera, por ahora, un diseño de fundaciones o una verificación de barras.
+Referencia numérica independiente: **Rawson II**, V=73,5 m/s de Fig.1.5-1D, C, z≤5 m, Kzt=Ke=1: q=0,613×0,87×0,85×73,5²=**2,448913 kPa**. Con V=58 m/s en2005 y Kz=0,87 de Tabla5, q=**1,524947 kPa**. El ejemplo orientativo del encargo usa Kz=0,85 y da1,489890 kPa; ambas cuentas están separadas en tests. No se fuerza la tabla para ajustar la cuenta ilustrativa.
 
-**Alcance pendiente:** este peso es parcial, no la carga D completa para construir. Faltan instalaciones, equipamiento fijo, acabados adicionales y herrajes que no son piezas del modelo. El cielorraso bajo cubierta tampoco está en el modelo ni en el cómputo actual y se declara pendiente; el cielorraso de entrepiso sí se pesa. No se agregan cargas ficticias para ocultar esas faltas.
+### Fuentes y límites
 
-Todavía no están implementados viento, nieve, sismo, sobrecargas, combinaciones, bajada de cargas, análisis del pórtico, resistencia, deformaciones, anclajes, estabilidad ni dimensionado de fundaciones. El estado permanece **«Revisar»**. El modo automático se reserva para la fase 3 y no cambia secciones en la fase 0. La siguiente entrega es **fase 1 · Cargas**, según `docs/PROMPT-ASTRA-motor-estructural.md`.
+Fuentes primarias y coeficientes versionados: `data/reglamentos.js`, `data/locations.js` y `data/materials.js`.
+
+- [Catálogo oficial INTI-CIRSOC](https://www.inti.gob.ar/areas/serviciosindustriales/construcciones-e-infraestructura/cirsoc/reglamentos) y [Resolución SOP11/2026](https://www.inti.gob.ar/assets/uploads/files/cirsoc/resoluciones-legales/03/RESOL-2026-11-APN-SOP-MEC_CIRSOC.pdf): ediciones y adopción jurisdiccional.
+- [CIRSOC101-2025](https://www.inti.gob.ar/assets/uploads/files/cirsoc/02-Reglamento-tramite-de-aprobacion/Reglamento-CIRSOC-101-25.pdf), [CIRSOC102-2025](https://www.inti.gob.ar/assets/uploads/files/cirsoc/02-Reglamento-tramite-de-aprobacion/Reglamento-CIRSOC-102-25.pdf), [CIRSOC104-2005](https://www.inti.gob.ar/assets/uploads/files/cirsoc/vigencia-2013/area100/2021/14-%20CIRSOC%20104-Reglamento.pdf) e [INPRES103-I-2018](https://www.inti.gob.ar/assets/uploads/files/cirsoc/06-reglamentos-2da-generacion/area100/06_Area100_INPRES-CIRSOC-103-Parte-1-Reglamento-2018.pdf).
+- [CIRSOC301-2005](https://www.inti.gob.ar/assets/uploads/files/cirsoc/vigencia-2013/area300/reglamento_301.pdf), [101-2005](https://www.inti.gob.ar/assets/uploads/files/cirsoc/vigencia-2013/area100/Reglamento-cirsoc101-completo.pdf) y [102-2005](https://www.inti.gob.ar/assets/uploads/files/cirsoc/vigencia-2013/area100/Reglamentos_CIRSOC_INPRES.pdf): antecedentes seleccionables, no mezclados con viento2025.
+- [Knauf ST12,5](https://knauf.com/es-AR/p/producto/placa-de-yeso-st-12.5-10003_2001): referencia8,15 kg/m² a confirmar para producto instalado. [EGGER OSB3](https://www.egger.com/en/building-products/range/products/osb3): densidad mínima600 kg/m³ no equivale a peso real. Chapas, lana, membranas, hormigón y perfiles mantienen supuestos editables. CIRSOC101-2005 Tabla3.1 indica25 kN/m³ para hormigón armado; los24 del encargo no se presentan como valor reglamentario.
+
+**Alcance pendiente visible en resultados:** el viento es preliminar para edificio rectangular regular≤20 m; rigidez, protección de carpinterías y exposición no se acreditan. Se carga la fachada bruta (incluyendo carpinterías), como cota conservadora ante apertura potencial. Niveles escalonados no descuentan resguardo y requieren estudiar interferencias. La zonificación de plantas irregulares usa caja envolvente y deja diagnóstico. C&R de una agua>30° no se calcula; gables hasta45°. Aleros inclinados2025 sin curva neta implementada usan una envolvente adicional de techo+presión inferior, **a revisar antes de diseñar fijaciones**. La errata A>5 de TablaC5.3-2 zona2 alero se resuelve con el extremoA=50 del gráfico.
+
+Faltan presiones bajo piso elevado (Fig.5.3-1A), edificios abiertos, parapetos, respuestas flexibles/dinámicas, lluvia/embalsamiento, hielo, caída de nieve desde cubiertas superiores y cargas de montaje. Centros de masa, concentración en diafragmas, regularidad sísmica y reparto por rigidez son preliminares. Las acciones y envolventes son **fuerzas y momentos de cargas, no reacciones ni chequeos de anclajes**. Las cargas concentradas de uso se registran para futuro análisis local; no se verifica aún la posición más desfavorable. Suelo100 kPa y resistencias requieren documentación. El estado permanece **Revisar**.
+
+La próxima entrega es **fase2 · Análisis**, según `docs/PROMPT-ASTRA-motor-estructural.md`. El cálculo y planos para construir requieren revisión y firma de un profesional matriculado.
 
 ### Estructura del código
 
@@ -92,8 +109,11 @@ Todavía no están implementados viento, nieve, sismo, sobrecargas, combinacione
 | `cad/engineering/data/` | Materiales con fuentes y localidades con datos pendientes |
 | `cad/engineering/settings.js` | Entradas de ingeniería, migración y diagnóstico de datos inválidos |
 | `cad/engineering/keys.js` | Identidad estable de cada pieza |
-| `cad/engineering/loads.js`, `engine.js` | Peso propio trazable, supuestos y alcance del motor base |
-| `cad/engineering/panel.js` | Panel, pesos editables y extracto imprimible |
+| `cad/engineering/loads.js`, `engine.js` | D, L, Lr y orquestación de casos y combinaciones |
+| `cad/engineering/wind.js`, `snow.js`, `seismic.js` | Acciones climáticas/sísmicas y supuestos |
+| `cad/engineering/combinations.js` | Combinaciones y envolventes de cargas, sin reacciones |
+| `cad/engineering/load-geometry.js` | Recortes 3D, centros y resultantes |
+| `cad/engineering/panel.js` | Panel, cargas puntuales, pesos editables y extracto imprimible |
 
 Para sumar otro sistema constructivo (steel frame, wood frame, container) se agrega su definición en `SYSTEMS` de `cad/catalog.js` con los perfiles de cada rol, y las reglas propias en el generador.
 
@@ -106,7 +126,7 @@ npm start
 
 Luego abrir `http://localhost:4173` (calculadora) o `http://localhost:4173/cad.html` (diseñador).
 
-`npm test` corre 37 pruebas: las 19 originales y 18 de ingeniería base. GitHub Actions las corre en cada PR y agrega una prueba de navegador con Playwright en el entorno de CI (no agrega dependencias a la PWA): edición/guardado/deshacer, 3D, escritorio, celular de 390 px y carga del cálculo sin conexión. Conserva capturas y resultados como artefactos del workflow. Las tipografías externas se reemplazan por la fuente de sistema solo durante esa prueba.
+`npm test` corre 63 pruebas: las 19 originales, 18 de base y 26 de cargas. GitHub Actions las corre en cada PR y agrega una prueba de navegador con Playwright en el entorno de CI (no agrega dependencias a la PWA): edición/guardado/deshacer, 3D, escritorio, celular de 390 px y carga del cálculo sin conexión. Conserva capturas y resultados como artefactos del workflow. Las tipografías externas se reemplazan por la fuente de sistema solo durante esa prueba.
 
 ## Alcance
 
