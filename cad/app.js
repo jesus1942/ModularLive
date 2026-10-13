@@ -96,7 +96,10 @@ const editor = createPlanEditor({
   onSelectionChange: (sel) => {
     if (["floor", "roof", "balcony"].includes(sel?.type)) {
       layerState[sel.type === "floor" ? "piso" : sel.type === "roof" ? "cubierta" : "balcones"] = true;
-      if (sel.type === "floor") layerState.cubierta = false;
+      if (sel.type === "floor") {
+        layerState.cubierta = layerState.cielorraso = layerState.cerramientos = false;
+        layerState.estructura = true;
+      }
       renderLayerToggles();
       $("#windViewMode").value = "model";
       renderWindView();

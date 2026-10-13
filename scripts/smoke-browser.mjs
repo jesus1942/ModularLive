@@ -67,12 +67,17 @@ async function verifyComponents(page, label) {
   await page.mouse.click(a.x,a.y);await page.mouse.click(b.x,b.y);
   await page.waitForFunction(()=>document.querySelectorAll('#planSvg .footprint').length===2);
   assert.match(await page.locator('#metrics').innerText(),/27 m²/);
+  await page.getByRole('button',{name:'Planta + 3D',exact:true}).click();
+  await page.locator('#fitBtn').click();
+  await page.getByRole('button',{name:'Terminado',exact:true}).click();
   await page.getByRole('button',{name:'Piso',exact:true}).click();
   let center=await planPoint(page,9.5,1.5);await page.mouse.click(center.x,center.y);
   await page.locator('#selectionPanel h3').filter({hasText:'Piso'}).waitFor();
   assert.match(await page.locator('#selectionPanel').innerText(),/9 m²/);
   assert.equal(await page.locator('#layerToggles [data-layer="piso"]').isChecked(),true);
   assert.equal(await page.locator('#layerToggles [data-layer="cubierta"]').isChecked(),false);
+  assert.equal(await page.locator('#layerToggles [data-layer="cielorraso"]').isChecked(),false);
+  assert.equal(await page.locator('#layerToggles [data-layer="cerramientos"]').isChecked(),false);
   await page.getByRole('button',{name:'Techo',exact:true}).click();
   center=await planPoint(page,9.5,1.5);await page.mouse.click(center.x,center.y);
   await page.locator('#selectionPanel h3').filter({hasText:'Techo'}).waitFor();
