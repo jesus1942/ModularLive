@@ -84,13 +84,14 @@ button, input, select { font: inherit; color: inherit; }
 /* ---------- herramientas ---------- */
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   padding: 8px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--panel);
-  overflow-x: auto;
+  overflow-x: visible;
 }
-.toolbar__group { display: flex; gap: 4px; padding-right: 12px; border-right: 1px solid var(--line); }
+.toolbar__group { display: flex; flex-wrap: wrap; max-width: 100%; gap: 4px; padding-right: 12px; border-right: 1px solid var(--line); }
 .toolbar__group:last-child { border-right: 0; margin-left: auto; }
 .toolbar button {
   display: inline-flex;
@@ -177,6 +178,8 @@ button, input, select { font: inherit; color: inherit; }
 .plan .grid-minor { stroke: rgba(22, 49, 38, 0.06); stroke-width: 1; }
 .plan .grid-major { stroke: rgba(22, 49, 38, 0.13); stroke-width: 1; }
 .plan .footprint { fill: rgba(214, 125, 68, 0.07); stroke: none; }
+.plan .footprint.surface-selected { fill: rgba(214, 125, 68, 0.15); stroke: #111; stroke-width: 2; stroke-dasharray: 6 3; }
+.plan[data-tool="floor"], .plan[data-tool="roof"], .plan[data-tool="balcony"] { cursor: copy; }
 .plan .wall { stroke-linecap: square; }
 .plan .wall--exterior { stroke: #214034; }
 .plan .wall--interior { stroke: #6f9583; }

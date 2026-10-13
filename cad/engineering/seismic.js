@@ -26,6 +26,10 @@ export function distributeSeismic_N(weights_N, heights_m, C, topFraction = 0) {
 export function computeSeismic(project, gen, e, dead, live, snow) {
   const cases = [], issues = [], assumptions = [];
   const result = { source: SOURCES.seismic, cases, issues, assumptions, zone: e.location.seismicZone, status: "review" };
+  if (gen.levels.some(lv => lv.footprints?.length > 1)) {
+    issues.push("Estructuras independientes: la acción sísmica se debe resolver por edificio; no se usa el centro de la primera huella para repartir la masa de todas.");
+    return result;
+  }
   const height = Math.max(0, ...gen.levels.map((l) => l.zTop));
   const zone = e.location.seismicZone;
   if (!e.seismic.confirmed || !e.seismic.source) assumptions.push({ id: "seismic:system", scope: "sismo", message: `Sitio ${e.seismic.site}, grupo ${e.seismic.riskGroup} y R=${e.seismic.R} supuestos; requiere estudio de suelos y sistema lateral certificado. R=1 inicial no aprovecha ductilidad.` });

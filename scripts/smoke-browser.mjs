@@ -40,6 +40,79 @@ async function verifyWidth(page) {
   assert.ok(sizes.document <= sizes.viewport + 1, JSON.stringify(sizes));
 }
 
+/** Convierte una medida en metros a pantalla usando el primer módulo visible de 6 × 3 m. */
+async function planPoint(page, x, y) {
+  await page.locator('#planSvg').scrollIntoViewIfNeeded();
+  return page.evaluate(({x,y}) => {
+    const svg=document.querySelector('#planSvg'),r=svg.getBoundingClientRect();
+    const points=document.querySelector('#planSvg .footprint').getAttribute('points').split(' ').map(p=>p.split(',').map(Number));
+    const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]);
+    const px=Math.min(...xs)+(Math.max(...xs)-Math.min(...xs))*x/6,py=Math.min(...ys)+(Math.max(...ys)-Math.min(...ys))*y/3;
+    return {x:r.left+px,y:r.top+py,inside:px>20&&py>20&&px<r.width-20&&py<r.height-45};
+  },{x,y});
+}
+
+/** Prueba el flujo que fallaba: otra estructura, su piso/techo, un balcón y guardado real. */
+async function verifyComponents(page, label) {
+  await page.getByRole('button',{name:'Planta',exact:true}).click();
+  await page.locator('#fitBtn').click();
+  for(let attempt=0;attempt<10;attempt++) {
+    const a=await planPoint(page,8,0),b=await planPoint(page,11,3);
+    if(a.inside&&b.inside)break;
+    await page.locator('#zoomOut').click();
+    assert.ok(attempt<9,'Las dos esquinas deben entrar en el plano.');
+  }
+  await page.locator('#toolButtons [data-tool="rect"]').click();
+  const a=await planPoint(page,8,0),b=await planPoint(page,11,3);
+  await page.mouse.click(a.x,a.y);await page.mouse.click(b.x,b.y);
+  await page.waitForFunction(()=>document.querySelectorAll('#planSvg .footprint').length===2);
+  assert.match(await page.locator('#metrics').innerText(),/27 m²/);
+  await page.getByRole('button',{name:'Piso',exact:true}).click();
+  let center=await planPoint(page,9.5,1.5);await page.mouse.click(center.x,center.y);
+  await page.locator('#selectionPanel h3').filter({hasText:'Piso'}).waitFor();
+  assert.match(await page.locator('#selectionPanel').innerText(),/9 m²/);
+  assert.equal(await page.locator('#layerToggles [data-layer="piso"]').isChecked(),true);
+  assert.equal(await page.locator('#layerToggles [data-layer="cubierta"]').isChecked(),false);
+  await page.getByRole('button',{name:'Techo',exact:true}).click();
+  center=await planPoint(page,9.5,1.5);await page.mouse.click(center.x,center.y);
+  await page.locator('#selectionPanel h3').filter({hasText:'Techo'}).waitFor();
+  await page.locator('#selectionPanel select[data-path="roof.type"]').selectOption('una_agua');
+  await page.locator('#selectionPanel input[data-path="roof.slope"]').fill('18');
+  await page.locator('#selectionPanel input[data-path="roof.slope"]').press('Tab');
+  await page.waitForFunction(()=>document.querySelector('#roofType').value==='una_agua'&&document.querySelector('#settingsPanel [data-path="roof.slope"]').value==='18');
+  assert.equal(await page.locator('#layerToggles [data-layer="cubierta"]').isChecked(),true);
+  await page.getByRole('button',{name:'Balcón',exact:true}).click();
+  const edge=await planPoint(page,9.5,0);await page.mouse.click(edge.x,edge.y);
+  await page.locator('#selectionPanel h3').filter({hasText:'Balcón'}).waitFor();
+  assert.equal(await page.locator('#planSvg .balcony').count(),1);
+  await page.locator('#selectionPanel [data-bal="depth"]').fill('1.4');
+  await page.locator('#selectionPanel [data-bal="depth"]').press('Tab');
+  await page.locator('#selectionPanel [data-bal="width"]').fill('2.2');
+  await page.locator('#selectionPanel [data-bal="width"]').press('Tab');
+  await page.waitForFunction(()=>document.querySelector('#selectionPanel').textContent.includes('2,2 × 1,4'));
+  for(let i=0;i<3;i++)await page.locator('#undoBtn').click();
+  await page.waitForFunction(()=>!document.querySelector('#planSvg .balcony'));
+  for(let i=0;i<3;i++)await page.locator('#redoBtn').click();
+  await page.waitForFunction(()=>document.querySelector('#planSvg .balcony'));
+  const saved=page.waitForEvent('download');await page.locator('#saveBtn').click();
+  const download=await saved,path=`${output}${label}-components.json`;await download.saveAs(path);
+  const project=JSON.parse(await readFile(path,'utf8'));await unlink(path);
+  assert.equal(project.levels[0].walls.length,8);assert.equal(project.levels[0].balconies.length,1);
+  assert.equal(project.levels[0].balconies[0].width,2.2);assert.equal(project.levels[0].balconies[0].depth,1.4);
+  assert.equal(project.roof.type,'una_agua');assert.equal(project.roof.slope,18);
+  await page.reload();await page.locator('#engineeringSummary [data-show-engineering]').waitFor();
+  assert.equal(await page.locator('#planSvg .footprint').count(),2);
+  assert.equal(await page.locator('#planSvg .balcony').count(),1);
+  assert.match(await page.locator('#metrics').innerText(),/27 m²/);
+  await page.getByRole('button',{name:'Balcón',exact:true}).click();
+  await page.locator('#toolButtons [data-tool="select"]').click();
+  await page.getByRole('button',{name:'Terminado',exact:true}).click();
+  await page.locator('#viewer').scrollIntoViewIfNeeded();
+  await page.screenshot({path:`${output}${label}-components.png`});
+  await verifyWidth(page);
+  checks.push(`${label}: segunda estructura con piso y techo, balcón colocado/editado, deshacer/rehacer, JSON y recarga sin duplicaciones.`);
+}
+
 try {
   await waitForServer();
   const { page, context } = await openPage({ width: 1440, height: 1000 });
@@ -148,6 +221,11 @@ try {
   await mobile.page.screenshot({path:`${output}mobile-deformed.png`});
   await verifyWidth(mobile.page);
   checks.push("Celular 390 × 844: diseñador y detalle de Ingeniería sin desborde horizontal.");
+
+  const components=await openPage({width:1440,height:1000});
+  await verifyComponents(components.page,'desktop');
+  const mobileComponents=await openPage({width:390,height:844});
+  await verifyComponents(mobileComponents.page,'mobile');
 
   // Comprueba los módulos nuevos realmente servidos desde la caché del service worker.
   await page.evaluate(() => navigator.serviceWorker.ready);

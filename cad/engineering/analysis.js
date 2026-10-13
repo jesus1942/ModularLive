@@ -37,7 +37,9 @@ function combine(rows,id,includeBars=false) {
  * Se controlan transferencia y equilibrio de fuerza/momento antes de publicar cifras.
  */
 export function analyzeGeneration(project,gen,e,cases,combinations,wind) {
-  const model=createAnalyticalModel(project,gen,e),tributary=computeTributaryLoads(project,gen,e,model,cases,wind);
+  const model=createAnalyticalModel(project,gen,e),tributary=gen.incompleteContours||gen.levels.some(l=>l.footprints?.length>1)
+    ? {cases:[],traces:[],windUnitRoutes:[],issues:[],assumptions:[]}
+    : computeTributaryLoads(project,gen,e,model,cases,wind);
   const result={status:"unsupported",model,tributary,caseResponses:[],combinationChecks:[],reactionEnvelopes:[],barEnvelopes:[],nodeEnvelopes:[],drifts:[],equilibriumMax:null,
     assumptions:[...model.assumptions,...tributary.assumptions],issues:[...model.issues,...tributary.issues],
     scope:"Primer orden, elasticidad lineal, secundarias por reacciones estáticas. Cumplir equilibrio no acredita resistencia, rigidez de uniones ni estabilidad de fundaciones.",

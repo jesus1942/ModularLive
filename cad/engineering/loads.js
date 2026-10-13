@@ -96,7 +96,7 @@ export function computeDeadLoad(project, gen) {
     const li = project.levels.findIndex((l) => l.id === load.levelId);
     const lv = gen.levels[li];
     const roof = gen.surfaces.find((sf) => sf.level === li && sf.material === "cubierta" && pointInPolygon({ x: load.x_m, y: load.y_m }, sf.points.map((p) => ({ x: p[0], y: p[1] }))));
-    const inside = lv?.footprint && pointInPolygon({ x: load.x_m, y: load.y_m }, lv.footprint);
+    const inside = lv?.footprint && pointInPolygon({ x: load.x_m, y: load.y_m }, lv.footprints ?? lv.footprint);
     if (load.target === "floor" ? !inside : !roof) { issues.push(`${load.label}: la posición no cae en el ${load.target === "floor" ? "piso" : "techo expuesto"} del nivel; carga sin aplicar.`); continue; }
     const n = roof ? normal3D(roof.points) : [0, 0, 1], a = roof?.points[0];
     const z = load.target === "floor" ? lv.floorTop : a[2] - (n[0] * (load.x_m - a[0]) + n[1] * (load.y_m - a[1])) / n[2];

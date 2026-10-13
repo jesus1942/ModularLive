@@ -152,9 +152,10 @@ export function exposedParts(footprint, above) {
   if (!footprint || !above) return [];
   const rects = differenceRects(footprint, above);
   if (!rects.length) return [];
+  const upperPoints = Array.isArray(above[0]) ? above.flat() : above;
   const grid = {
-    xs: [...new Set([...footprint, ...above].map((p) => round(p.x, 4)).concat(rects.flatMap((r) => [r.x0, r.x1])))],
-    ys: [...new Set([...footprint, ...above].map((p) => round(p.y, 4)).concat(rects.flatMap((r) => [r.y0, r.y1])))]
+    xs: [...new Set([...footprint, ...upperPoints].map((p) => round(p.x, 4)).concat(rects.flatMap((r) => [r.x0, r.x1])))],
+    ys: [...new Set([...footprint, ...upperPoints].map((p) => round(p.y, 4)).concat(rects.flatMap((r) => [r.y0, r.y1])))]
   };
   return groupRects(rects).flatMap((group) => {
     const part = makePart(group, footprint, above, grid, false);

@@ -47,7 +47,8 @@ export function computeSnow(project, gen, e) {
   const surfaces = gen.surfaces.filter((s) => s.material === "cubierta");
   const rows = [], issues = [], assumptions = [], cases = [];
   for (const sf of surfaces) {
-    const bb = bbox(gen.levels[sf.level].footprint);
+    const lv = gen.levels[sf.level];
+    const bb = bbox(lv.regions?.[sf.region ?? 0]?.footprint ?? lv.footprint);
     const geometry = roofSurfaceGeometry(project, gen, sf);
     const theta = geometry.theta_deg;
     const type = geometry.roofType;
@@ -64,6 +65,10 @@ export function computeSnow(project, gen, e) {
     const entries = rows.map((a) => a.id === r.id ? a : { ...a, pressure_Pa: a.pressure_Pa / 2, force_N: a.force_N.map((v) => v / 2) });
     cases.push({ id: `S:parcial:${r.surfaceKey}`, kind: "S", label: `Nieve parcial · nivel ${r.level + 1}`, entries, reference: "104-05 §5.2: paño completo/resto a mitad; patrón por tramo pendiente de análisis", ...actionResultant(entries) });
   });
+  if (gen.levels.some(lv => lv.footprints?.length > 1)) {
+    issues.push("Estructuras independientes: nieve balanceada por cubierta y cargas parciales disponibles; acumulación, nieve no balanceada e interferencias requieren calcular cada edificio por separado.");
+    return { source: SOURCES.snow, cases, assumptions, issues, rows, status: "review" };
+  }
   for (const sf of surfaces) {
     const above = gen.levels[sf.level + 1];
     if (!above?.footprint) continue;

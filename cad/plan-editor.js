@@ -1,6 +1,6 @@
 // Editor de planta 2D sobre SVG. Coordenadas del modelo en metros; Y crece hacia abajo en pantalla.
 import { dist, dot, normalize, pointInPolygon, pointKey, sub, wallDir, wallLength } from "./geometry.js";
-import { STAIR_DEFAULTS, defaultSwing, doorLeaf, newId } from "./model.js";
+import { STAIR_DEFAULTS, defaultSwing, doorLeaf, levelFootprints, newId, placeBalcony, wallFootprint } from "./model.js";
 import { dirVector, layoutStair } from "./stairs.js";
 import { balconyGeometry } from "./outdoor-build.js";
 
@@ -176,7 +176,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   }
   const balconyPolyOf = (p, bal) => {
     const wall = lvl(p).walls.find((w) => w.id === bal.wallId);
-    return wall ? balconyGeometry(bal, wall, gen?.levels?.[level]?.footprint ?? null) : null;
+    return wall ? balconyGeometry(bal, wall, wallFootprint(gen?.levels?.[level], wall)) : null;
   };
   function balconyAt(raw) {
     const p = model();
@@ -258,7 +258,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       return;
     }
     const id = newId("o");
-    const extra = kind === "door" ? { hinge: "start", swing: defaultSwing(w, gen?.levels?.[level]?.footprint ?? null) } : {};
+    const extra = kind === "door" ? { hinge: "start", swing: defaultSwing(w, wallFootprint(gen?.levels?.[level], w)) } : {};
     store.update((p) => {
       lvl(p).walls.find((x) => x.id === w.id).openings.push({ id, kind, offset, width, height: def.height, sill: def.sill, ...extra });
     });
@@ -266,7 +266,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   }
 
   function deleteSelection() {
-    if (!selection || selection.type === "exposed") return;
+    if (!selection || ["exposed", "floor", "roof"].includes(selection.type)) return;
     const sel = selection;
     store.update((p) => {
       if (sel.type === "wall") {
@@ -369,6 +369,9 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       interior: "Tocá para marcar tabiques interiores. Se enganchan a los muros existentes.",
       door: "Tocá sobre un muro para agregar una puerta.",
       window: "Tocá sobre un muro para agregar una ventana.",
+      floor: "Tocá dentro de una estructura cerrada para ver y editar su piso.",
+      roof: "Tocá dentro de una estructura cerrada para ver y editar su techo.",
+      balcony: "Tocá un muro exterior para colocar un balcón y editar sus medidas.",
       stair: stairEnv()
         ? "Tocá donde arranca la escalera y después hacia dónde sube. Se calcula sola según el reglamento."
         : "Para poner una escalera hace falta un nivel encima: tocá + en la barra de niveles."
@@ -397,6 +400,27 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     const raw = toModel(evt);
     if (evt.button === 1 || evt.button === 2 || evt.altKey) {
       drag = { kind: "pan", sx: evt.clientX, sy: evt.clientY, ox: view.ox, oy: view.oy };
+      return;
+    }
+    if (tool === "floor" || tool === "roof") {
+      const region = levelFootprints(gen?.levels?.[level]).findIndex(poly => pointInPolygon(raw, poly));
+      if (region < 0) { flash("Cerrá el contorno exterior y tocá dentro de la estructura para colocar piso y techo."); return; }
+      const type = tool;
+      setTool("select"); setSelection({ type, region });
+      return;
+    }
+    if (tool === "balcony") {
+      const hit = lvl(store.project).walls.filter(w => w.type === "exterior").map(w => ({ w, ...projectOnSegment(raw, w.a, w.b) }))
+        .filter(h => h.d < Math.max(tol(16), WALL_THICKNESS)).sort((a, b) => a.d - b.d)[0];
+      if (!hit || !wallFootprint(gen?.levels?.[level], hit.w)) { flash("Tocá un muro exterior de una estructura con contorno cerrado."); return; }
+      const effective = gen?.effectiveWalls?.[level];
+      if (effective && !effective.some(w => w.type === "exterior" && (w.sourceWallIds ?? [w.id]).includes(hit.w.id))) {
+        flash("Ese muro queda dentro del conjunto. Elegí un borde exterior para el balcón."); return;
+      }
+      let balcony;
+      store.update(p => { balcony = placeBalcony(lvl(p), hit.w.id, hit.t * wallLength(hit.w)); });
+      if (!balcony) { flash("Elegí un tramo exterior de al menos 0,80 m para colocar el balcón."); return; }
+      setTool("select"); setSelection({ type: "balcony", balconyId: balcony.id });
       return;
     }
     if (tool === "select") {
@@ -755,9 +779,10 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
     // superficie cubierta
     const footprint = gen?.levels?.[level]?.footprint;
-    if (footprint && !draft) {
-      parts.push(`<polygon class="footprint" points="${footprint.map((p) => { const s = toScreen(p); return `${s.x},${s.y}`; }).join(" ")}"/>`);
-    }
+    if (!draft) levelFootprints(gen?.levels?.[level]).forEach((poly, region) => {
+      const selected = ["floor", "roof"].includes(selection?.type) && selection.region === region;
+      parts.push(`<polygon class="footprint${selected ? " surface-selected" : ""}" data-region="${region}" points="${poly.map((p) => { const s = toScreen(p); return `${s.x},${s.y}`; }).join(" ")}"/>`);
+    });
 
     const wt = Math.max(WALL_THICKNESS * view.scale, 4);
     // muros
@@ -920,9 +945,10 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       const dir = wallDir(w);
       let n = { x: -dir.y, y: dir.x };
       const mid = { x: (w.a.x + w.b.x) / 2, y: (w.a.y + w.b.y) / 2 };
-      if (footprint && w.type === "exterior") {
+      const localFootprint = wallFootprint(gen?.levels?.[level], w);
+      if (localFootprint && w.type === "exterior") {
         const probe = { x: mid.x + n.x * 0.2, y: mid.y + n.y * 0.2 };
-        if (pointInPolygon(probe, footprint)) n = { x: -n.x, y: -n.y };
+        if (pointInPolygon(probe, localFootprint)) n = { x: -n.x, y: -n.y };
       }
       const off = w.type === "exterior" ? 0.42 : 0.24;
       const pos = toScreen({ x: mid.x + n.x * off, y: mid.y + n.y * off });

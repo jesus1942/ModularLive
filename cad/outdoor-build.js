@@ -171,8 +171,9 @@ export function buildExposedRoof(part, pi, plane, ctx) {
     });
 
   // Cenefas en los bordes libres perpendiculares a los cabios (alero bajo y borde alto)
-  const aboveXs = ctx.above.map((p) => p.x);
-  const aboveYs = ctx.above.map((p) => p.y);
+  const upperPoints = Array.isArray(ctx.above[0]) ? ctx.above.flat() : ctx.above;
+  const aboveXs = upperPoints.map((p) => p.x);
+  const aboveYs = upperPoints.map((p) => p.y);
   loops.forEach((loop, li2) =>
     loop.forEach((p, i) => {
       const q = loop[(i + 1) % loop.length];

@@ -35,6 +35,8 @@ export function createAnalyticalModel(project,generation,e) {
     raw.push({member,section,a,b,cuts:[0,1]});
   }
   if(generation.levels.some(l=>!l.footprint))issues.push("Contorno abierto: el camino de cargas no está cerrado; el análisis global se deja sin resolver.");
+  if(generation.incompleteContours)issues.push("Hay contornos o aberturas sin resolver: revisá las advertencias antes de analizar la estructura.");
+  if(generation.levels.some(l=>l.footprints?.length>1))issues.push("Varias estructuras independientes en un nivel: piso, techo, balcón y cómputo se generan por contorno; el análisis global entre estructuras queda pendiente.");
   // Cualquier extremo que cae dentro de una barra del MISMO módulo la divide.
   // También se crea el nodo de transferencia para columnas superiores sobre vigas.
   for(const r of raw) {

@@ -3,12 +3,12 @@ import { createPlanEditor } from "./plan-editor.js";
 import { createViewer, LAYERS } from "./viewer3d.js";
 import { generate } from "./generator.js";
 import { bomToCsv, computeBom, cutListToCsv } from "./bom.js";
-import { copyContour, createDefaultProject, createLevel, defaultSwing, doorLeaf, levelName, newId } from "./model.js";
+import { copyContour, createDefaultProject, createLevel, defaultSwing, doorLeaf, levelFootprints, levelName, newId, placeBalcony, wallFootprint } from "./model.js";
 import { STAIR_KINDS, STAIR_TREADS } from "./stairs.js";
 import { STAIR_RULES } from "./data/stair-rules.js";
 import { GUARD } from "./exposed.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
-import { pointKey, wallDir, wallLength } from "./geometry.js";
+import { pointKey, polygonArea, wallDir, wallLength } from "./geometry.js";
 import { createEngineeringClient } from "./engineering/worker-client.js";
 import { engineeringInputsHtml, engineeringUsageHtml, engineeringPrintHtml, engineeringResultHtml, engineeringSummaryHtml } from "./engineering/panel.js";
 import { MATERIALS } from "./engineering/data/materials.js";
@@ -94,11 +94,18 @@ const editor = createPlanEditor({
   store,
   status: $("#planStatus"),
   onSelectionChange: (sel) => {
+    if (["floor", "roof", "balcony"].includes(sel?.type)) {
+      layerState[sel.type === "floor" ? "piso" : sel.type === "roof" ? "cubierta" : "balcones"] = true;
+      if (sel.type === "floor") layerState.cubierta = false;
+      renderLayerToggles();
+      $("#windViewMode").value = "model";
+      renderWindView();
+    }
     renderSelection();
     viewer?.highlightWall(sel?.wallId ?? null);
   },
   onToolChange: (tool) => {
-    document.querySelectorAll("[data-tool]").forEach((b) => b.classList.toggle("is-active", b.dataset.tool === tool));
+    document.querySelectorAll("#toolButtons button[data-tool]").forEach((b) => b.classList.toggle("is-active", b.dataset.tool === tool));
   }
 });
 
@@ -109,7 +116,7 @@ try {
   $("#viewer").innerHTML = `<p class="viewer__error">No se pudo iniciar el 3D en este dispositivo (${escapeHtml(error.message)}).</p>`;
 }
 
-const layerState = Object.fromEntries(LAYERS.map((l) => [l.id, !["cerramientos", "cubierta", "cielorraso"].includes(l.id)]));
+const layerState = Object.fromEntries(LAYERS.map((l) => [l.id, !["cerramientos", "cielorraso"].includes(l.id)]));
 function renderLayerToggles() {
   $("#layerToggles").innerHTML = LAYERS.map(
     (l) => `<label class="chip"><input type="checkbox" data-layer="${l.id}" ${layerState[l.id] ? "checked" : ""}/> ${l.label}</label>`
@@ -286,10 +293,10 @@ function syncSettingsForm() {
   renderFoundationFields();
   $("#levelHeight").dataset.path = `levels.${activeLevel()}.height`;
   $("#levelHeightLabel").textContent = `Altura al bastidor superior · ${levelOf(store.project).name} (m)`;
-  $("#floorSpacingField").hidden = store.project.foundation.type === "platea";
+  $("#floorSpacingField").hidden = activeLevel() === 0 && store.project.foundation.type === "platea";
   const nameInput = $("#projectName");
   if (document.activeElement !== nameInput) nameInput.value = store.project.name;
-  document.querySelectorAll("#settingsPanel [data-path]").forEach((el) => {
+  document.querySelectorAll("#settingsPanel [data-path], #selectionPanel [data-path]").forEach((el) => {
     if (document.activeElement === el) return;
     const value = getPath(store.project, el.dataset.path);
     if (el.type === "checkbox") el.checked = Boolean(value);
@@ -297,7 +304,8 @@ function syncSettingsForm() {
   });
 }
 
-$("#settingsPanel").addEventListener("change", (e) => {
+/** Los controles de la barra lateral y del piso/techo seleccionado comparten la misma edición. */
+function changeParameter(e) {
   const el = e.target;
   const path = el.dataset.path;
   if (!path) return;
@@ -339,7 +347,13 @@ $("#settingsPanel").addEventListener("change", (e) => {
       if (path.startsWith("engineering.wind.") && !path.endsWith(".serviceConfirmed")) p.engineering.wind.serviceConfirmed = false;
     }
   });
-});
+  if (path.startsWith("roof.")) {
+    layerState.cubierta = true;
+    renderLayerToggles();
+  }
+}
+$("#settingsPanel").addEventListener("change", changeParameter);
+$("#selectionPanel").addEventListener("change", changeParameter);
 
 $("#projectName").addEventListener("change", (e) => {
   const name = e.target.value.trim() || "Proyecto modular";
@@ -366,6 +380,10 @@ function renderSelection() {
   const project = store.project;
   const level = levelOf(project);
   const li = activeLevel();
+  if (["floor", "roof"].includes(sel?.type)) {
+    renderSurfacePanel(panel, sel, li);
+    return;
+  }
   if (sel?.type === "stair") {
     const st = (level.stairs ?? []).find((x) => x.id === sel.stairId);
     if (st) {
@@ -392,6 +410,7 @@ function renderSelection() {
     panel.innerHTML = `
       <h3>${escapeHtml(level.name)} <span class="muted">${project.levels.length > 1 ? `de ${project.levels.length} niveles` : ""}</span></h3>
       <p class="muted">${counts.exterior} muros exteriores · ${counts.interior} tabiques${info ? ` · piso a ${fmtNum(info.floorTop)} m` : ""}. Elegí una herramienta arriba para dibujar o tocá un elemento para editarlo.</p>
+      <p class="muted small">Piso y techo se generan al cerrar cada contorno. Usá <strong>Piso</strong> o <strong>Techo</strong> y tocá dentro de la estructura; para un <strong>Balcón</strong>, tocá su muro exterior.</p>
       <div class="row-actions">
         <button type="button" class="btn btn--ghost" data-action="add-level">+ Nivel encima</button>
         ${li < project.levels.length - 1 ? '<button type="button" class="btn btn--ghost" data-action="add-stair">+ Escalera al nivel de arriba</button>' : ""}
@@ -522,7 +541,7 @@ function renderSelection() {
         return;
       }
       const id = newId("o");
-      const extra = kind === "door" ? { hinge: "start", swing: defaultSwing(wall, gen?.levels?.[li]?.footprint ?? null) } : {};
+      const extra = kind === "door" ? { hinge: "start", swing: defaultSwing(wall, wallFootprint(gen?.levels?.[li], wall)) } : {};
       store.update((p) => {
         levelOf(p).walls.find((w) => w.id === wall.id).openings.push({ id, kind, offset, ...def, width, ...extra });
       });
@@ -531,24 +550,49 @@ function renderSelection() {
     panel.querySelector('[data-action="add-door"]').addEventListener("click", () => addOpening("door"));
     panel.querySelector('[data-action="add-window"]').addEventListener("click", () => addOpening("window"));
     panel.querySelector('[data-action="add-balcony"]')?.addEventListener("click", () => {
-      if (!gen?.levels?.[li]?.footprint) {
+      if (!wallFootprint(gen?.levels?.[li], wall)) {
         toast("Cerrá el contorno exterior del nivel antes de colgar un balcón.");
         return;
       }
-      const width = Math.round(Math.min(2.4, Math.max(L - 0.4, 0.6)) * 100) / 100;
       const door = wall.openings.find((o) => o.kind === "door");
-      const center = door ? door.offset + door.width / 2 : L / 2;
-      const offset = Math.round(Math.max(0, Math.min(L - width, center - width / 2)) * 1000) / 1000;
-      const id = newId("b");
+      let balcony;
       store.update((p) => {
-        const lv = levelOf(p);
-        lv.balconies = [...(lv.balconies ?? []), { id, wallId: wall.id, offset, width, depth: 1.2, support: "voladizo", railing: true }];
+        balcony = placeBalcony(levelOf(p), wall.id);
       });
-      editor.setSelection({ type: "balcony", balconyId: id });
+      if (!balcony) { toast("Elegí un tramo exterior de al menos 0,80 m para colocar el balcón."); return; }
+      editor.setSelection({ type: "balcony", balconyId: balcony.id });
       if (!door) toast("Balcón agregado. Falta una puerta en este muro para salir a él.");
     });
   }
   panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
+}
+
+/** Reutiliza el formulario real del proyecto para editar el piso o techo del contorno elegido. */
+function renderSurfacePanel(panel, selection, li) {
+  const info = gen?.levels?.[li], polygon = levelFootprints(info)[selection.region];
+  if (!polygon) { editor.setSelection(null); return; }
+  const floor = selection.type === "floor", level = store.project.levels[li];
+  panel.innerHTML = `<h3>${floor ? "Piso" : "Techo"} · ${escapeHtml(level.name)}</h3>
+    <p class="stair-sum"><strong>${fmtNum(Math.abs(polygonArea(polygon)))} m²</strong> · estructura ${selection.region + 1}</p>
+    <p class="muted small">${floor ? "El piso sigue el contorno de esta estructura y los huecos de escalera. La fundación y las separaciones se ajustan para el proyecto." : "La cubierta sigue el contorno y el alero. El tipo y la pendiente del techo se aplican a las estructuras libres del proyecto."}</p>`;
+  const source = floor && li > 0 ? $("#floorSpacingField") : document.querySelector(`${floor ? "#floorSettings" : "#roofSettings"} > .fields`);
+  const fields = source.cloneNode(true);
+  fields.removeAttribute("id");
+  fields.querySelectorAll("[id]").forEach(el => el.removeAttribute("id"));
+  fields.hidden = false;
+  fields.querySelectorAll("[data-path]").forEach(el => {
+    const value = getPath(store.project, el.dataset.path);
+    if (el.type === "checkbox") el.checked = Boolean(value);
+    else el.value = value;
+  });
+  panel.append(fields);
+  if (!floor && store.project.levels[li + 1]) {
+    panel.insertAdjacentHTML("beforeend", exposedHtml(li));
+    wireExposed(panel, li);
+    if (!gen.surfaces.some(sf => sf.level === li && sf.material === "cubierta" && (sf.region ?? 0) === selection.region)) {
+      panel.insertAdjacentHTML("beforeend", '<p class="eng-note">Sobre esta estructura apoya el entrepiso del nivel de arriba. Su techo exterior se edita en el nivel superior.</p>');
+    }
+  }
 }
 
 /** Qué se hace con la parte del nivel que el de arriba no tapa: techo a un agua o terraza. */
@@ -871,7 +915,7 @@ $("#engineeringPanel").addEventListener("click", (e) => {
 });
 
 // ---------- barra superior ----------
-document.querySelectorAll("[data-tool]").forEach((b) => b.addEventListener("click", () => editor.setTool(b.dataset.tool)));
+document.querySelectorAll("#toolButtons button[data-tool]").forEach((b) => b.addEventListener("click", () => editor.setTool(b.dataset.tool)));
 $("#undoBtn").addEventListener("click", () => store.undo());
 $("#redoBtn").addEventListener("click", () => store.redo());
 $("#fitBtn").addEventListener("click", () => {
@@ -960,7 +1004,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const keys = { v: "select", r: "rect", e: "exterior", i: "interior", p: "door", n: "window", s: "stair" };
+  const keys = { v: "select", r: "rect", e: "exterior", i: "interior", p: "door", n: "window", s: "stair", f: "floor", t: "roof", b: "balcony" };
   const tool = keys[e.key.toLowerCase()];
   if (tool && editor.tool !== tool && !/^[0-9]$/.test(e.key)) editor.setTool(tool);
 });

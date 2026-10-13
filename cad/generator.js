@@ -48,6 +48,26 @@ const MIN_FILL = 0.15; // relleno de hastial por debajo de esto se resuelve con 
 const DOOR_AJAR = (25 * Math.PI) / 180; // apertura con que se dibuja la hoja en 3D
 
 export function generate(project) {
+  const contourInfo = project.levels.map(level => findFootprint(level.walls));
+  const contoursChanged = contourInfo.some(info => info.walls);
+  // Una sola geometría efectiva alimenta piezas, superficies, peso y cómputo.
+  if (contoursChanged) project = { ...project, levels: project.levels.map((level, li) => {
+    const walls = contourInfo[li].walls ?? level.walls;
+    const balconies = (level.balconies ?? []).map(bal => {
+      const original = level.walls.find(w => w.id === bal.wallId);
+      if (!original) return bal;
+      const center = pointOnWall(original, bal.offset + bal.width / 2);
+      const target = walls.find(w => w.type === "exterior" && (w.sourceWallIds ?? [w.id]).includes(bal.wallId) && (() => {
+        const d = wallDir(w), along = (center.x - w.a.x) * d.x + (center.y - w.a.y) * d.y;
+        return along >= -EPS && along <= wallLength(w) + EPS;
+      })());
+      if (!target) return bal;
+      const direction = wallDir(target), start = pointOnWall(original, bal.offset), end = pointOnWall(original, bal.offset + bal.width);
+      const at = p => (p.x - target.a.x) * direction.x + (p.y - target.a.y) * direction.y;
+      return { ...bal, wallId: target.id, offset: Math.min(at(start), at(end)) };
+    });
+    return { ...level, walls, balconies };
+  }) };
   const system = SYSTEMS[project.system];
   const roles = { ...system.roles, column: project.mainFrame, ringBeam: project.mainFrame };
   const prof = (role) => PROFILES[roles[role]];
@@ -134,13 +154,13 @@ export function generate(project) {
   const levelsOut = [];
 
   const footprints = project.levels.map((level, i) => {
-    const info = findFootprint(level.walls);
+    const info = contourInfo[i];
     const tag = multi ? `${level.name}: ` : "";
     info.warnings.forEach((w) => warnings.push(tag + w));
     if (!info.polygon && i > 0 && level.walls.length) {
       warnings.push(`${level.name}: sin contorno cerrado no apoya sobre el nivel inferior.`);
     }
-    return info.polygon;
+    return info.polygons?.length > 1 ? info.polygons : info.polygon;
   });
 
   // esquinas de los niveles de arriba: si caen sobre un muro de este nivel, ahí va una columna
@@ -196,700 +216,720 @@ export function generate(project) {
   let base = f.elevation;
   let lowerColumns = null;
 
-  project.levels.forEach((level, li) => {
-    const lv = { level: li };
-    const footprint = footprints[li];
-    const above = li + 1 < project.levels.length ? footprints[li + 1] : null;
-    const isTop = !above;
-    const elevated = li > 0 || f.type !== "platea";
-    const elev = base;
-    const floorTop = elevated ? elev + ring.h + DECK_THICKNESS : elev;
-    const zTop = floorTop + level.height; // cara superior del bastidor superior
-    const height = level.height;
-    const exteriorWalls = level.walls.filter((w) => w.type === "exterior");
-    const interiorWalls = level.walls.filter((w) => w.type === "interior");
+  project.levels.forEach((sourceLevel, li) => {
+    const regions = contourInfo[li].regions?.length ? contourInfo[li].regions : [{ polygon: contourInfo[li].polygon, walls: sourceLevel.walls }];
+    const assigned = new Set(regions.flatMap(region => region.walls.map(w => w.id)));
+    const looseWalls = sourceLevel.walls.filter(w => !assigned.has(w.id));
+    if (looseWalls.length) regions.push({ polygon: null, walls: looseWalls });
+    const regionOutputs = [], allColumns = new Map();
+    regions.forEach((region, ri) => {
+      const footprint = region.polygon;
+      const wallIds = new Set(region.walls.map(w => w.id));
+      const level = { ...sourceLevel, walls: region.walls, balconies: (sourceLevel.balconies ?? []).filter(b => wallIds.has(b.wallId)) };
+      const lv = { level: li, ...(regions.length > 1 ? { region: ri } : {}) };
+      const upperPolygons = li + 1 < project.levels.length ? (contourInfo[li + 1].polygons ?? (contourInfo[li + 1].polygon ? [contourInfo[li + 1].polygon] : [])) : [];
+      const touchingAbove = footprint ? upperPolygons.filter(upper => differenceRects(footprint, upper).reduce((sum, r) => sum + (r.x1 - r.x0) * (r.y1 - r.y0), 0) < polygonArea(footprint) - EPS) : upperPolygons;
+      const above = touchingAbove.length > 1 ? touchingAbove : touchingAbove[0] ?? null;
+      const regionHoles = (holesByLevel[li] ?? []).filter(loop => regions.length === 1 || footprint && pointInPolygon(loop[0], footprint));
+      const isTop = !above;
+      const elevated = li > 0 || f.type !== "platea";
+      const elev = base;
+      const floorTop = elevated ? elev + ring.h + DECK_THICKNESS : elev;
+      const zTop = floorTop + level.height; // cara superior del bastidor superior
+      const height = level.height;
+      const exteriorWalls = level.walls.filter((w) => w.type === "exterior");
+      const interiorWalls = level.walls.filter((w) => w.type === "interior");
 
-    // ---------- Geometría del techo de este nivel ----------
-    let roofUnderside = () => zTop;
-    let spanAxis = "x";
-    let uRange = [0, 0];
-    if (footprint) {
-      const bb = bbox(footprint);
-      spanAxis = bb.maxX - bb.minX <= bb.maxY - bb.minY ? "x" : "y";
-      uRange = spanAxis === "x" ? [bb.minX, bb.maxX] : [bb.minY, bb.maxY];
-      if (isTop) {
-        const slope = Math.max(project.roof.slope, 0) / 100;
-        const [umin, umax] = uRange;
-        const umid = (umin + umax) / 2;
-        const half = (umax - umin) / 2;
-        const uOf = (p) => (spanAxis === "x" ? p.x : p.y);
-        roofUnderside =
-          project.roof.type === "dos_aguas"
-            ? (p) => zTop + slope * (half - Math.abs(uOf(p) - umid))
-            : (p) => zTop + slope * (uOf(p) - umin);
+      // ---------- Geometría del techo de este nivel ----------
+      let roofUnderside = () => zTop;
+      let spanAxis = "x";
+      let uRange = [0, 0];
+      if (footprint) {
+        const bb = bbox(footprint);
+        spanAxis = bb.maxX - bb.minX <= bb.maxY - bb.minY ? "x" : "y";
+        uRange = spanAxis === "x" ? [bb.minX, bb.maxX] : [bb.minY, bb.maxY];
+        if (isTop) {
+          const slope = Math.max(project.roof.slope, 0) / 100;
+          const [umin, umax] = uRange;
+          const umid = (umin + umax) / 2;
+          const half = (umax - umin) / 2;
+          const uOf = (p) => (spanAxis === "x" ? p.x : p.y);
+          roofUnderside =
+            project.roof.type === "dos_aguas"
+              ? (p) => zTop + slope * (half - Math.abs(uOf(p) - umid))
+              : (p) => zTop + slope * (uOf(p) - umin);
+        }
       }
-    }
 
-    // ---------- Parte descubierta de este nivel (el de arriba es más chico, está girado o corrido) ----------
-    const exposedCfg = { ...EXPOSED_DEFAULTS, ...(level.exposed ?? {}) };
-    const exposedItems = !isTop && footprint
-      ? exposedParts(footprint, above).map((part) => ({
-        part,
-        plane: exposedPlane(part, exposedCfg, { zTop, upFloorTop: levelZ[li + 1].floorTop })
-      }))
-      : [];
+      // ---------- Parte descubierta de este nivel (el de arriba es más chico, está girado o corrido) ----------
+      const exposedCfg = { ...EXPOSED_DEFAULTS, ...(level.exposed ?? {}) };
+      const exposedItems = !isTop && footprint
+        ? exposedParts(footprint, above).map((part) => ({
+          part,
+          plane: exposedPlane(part, exposedCfg, { zTop, upFloorTop: levelZ[li + 1].floorTop })
+        }))
+        : [];
 
-    const openingSpans = (wall) => wall.openings.map((o) => [o.offset, o.offset + o.width]);
-    const insideOpening = (wall, sPos, margin = 0) => openingSpans(wall).some(([a, b]) => sPos > a - margin && sPos < b + margin);
+      const openingSpans = (wall) => wall.openings.map((o) => [o.offset, o.offset + o.width]);
+      const insideOpening = (wall, sPos, margin = 0) => openingSpans(wall).some(([a, b]) => sPos > a - margin && sPos < b + margin);
 
-    // ---------- Columnas y bastidores ----------
-    const columnNodes = new Map();
-    const wallColumns = new Map();
-    if (system.hasMainFrame) {
+      // ---------- Columnas y bastidores ----------
+      const columnNodes = new Map();
+      const wallColumns = new Map();
+      if (system.hasMainFrame) {
+        exteriorWalls.forEach((wall) => {
+          const L = wallLength(wall);
+          const dir = wallDir(wall);
+          const onWall = (p) => {
+            const rel = { x: p.x - wall.a.x, y: p.y - wall.a.y };
+            const along = rel.x * dir.x + rel.y * dir.y;
+            const across = Math.abs(rel.x * dir.y - rel.y * dir.x);
+            return across < 0.01 && along > col.b && along < L - col.b ? along : null;
+          };
+          const lowerKeys = new Set(lowerColumns ? lowerColumns.keys() : []);
+          const supported = (pos) => lowerKeys.has(pointKey(pointOnWall(wall, pos)));
+          const positions = [0, L];
+          // columnas del nivel de abajo que caen sobre este muro (continuidad de carga)
+          (lowerColumns ? [...lowerColumns.values()] : []).forEach((p) => {
+            const along = onWall(p);
+            if (along !== null && !insideOpening(wall, along, col.b)) positions.push(along);
+          });
+          // esquinas de los niveles de arriba que apoyan sobre este muro
+          cornersAbove[li].forEach((p) => {
+            const along = onWall(p);
+            if (along !== null && !insideOpening(wall, along, col.b / 2)) positions.push(along);
+          });
+          const sorted = [...new Set(positions.map((v) => round(v, 4)))].sort((a, b) => a - b);
+          const filled = [];
+          sorted.forEach((pos, i) => {
+            filled.push(pos);
+            const next = sorted[i + 1];
+            if (next === undefined) return;
+            // si el vano ya está resuelto abajo, se respeta para que las columnas coincidan
+            if (supported(pos) && supported(next)) return;
+            const gap = next - pos;
+            const n = Math.ceil(gap / system.defaults.maxColumnSpacing - 1e-9);
+            for (let k = 1; k < n; k += 1) {
+              let mid = pos + (gap * k) / n;
+              const hit = openingSpans(wall).find(([a, b]) => mid > a - col.b && mid < b + col.b);
+              if (hit) {
+                const left = hit[0] - col.b;
+                const right = hit[1] + col.b;
+                mid = mid - left < right - mid ? left : right;
+              }
+              if (mid > pos + col.b && mid < next - col.b) filled.push(mid);
+            }
+          });
+          const unique = [...new Set(filled.map((v) => round(v, 4)))].sort((a, b) => a - b);
+          wallColumns.set(wall.id, unique);
+          unique.forEach((pos) => {
+            const p = pointOnWall(wall, pos);
+            columnNodes.set(pointKey(p), p);
+          });
+        });
+
+        columnNodes.forEach((p) => {
+          if (allColumns.has(pointKey(p))) return;
+          addMember("column", "Columnas", "estructura", [p.x, p.y, elev], [p.x, p.y, zTop], zTop - elev, lv);
+        });
+
+        exteriorWalls.forEach((wall) => {
+          const cols = wallColumns.get(wall.id);
+          for (let i = 0; i + 1 < cols.length; i += 1) {
+            const pa = pointOnWall(wall, cols[i]);
+            const pb = pointOnWall(wall, cols[i + 1]);
+            const cut = cols[i + 1] - cols[i] - col.b;
+            const zb = elev + ring.h / 2;
+            const zt = zTop - ring.h / 2;
+            addMember("ringBeam", "Bastidor inferior", "estructura", [pa.x, pa.y, zb], [pb.x, pb.y, zb], cut, { ...lv, wallId: wall.id });
+            addMember("ringBeam", "Bastidor superior", "estructura", [pa.x, pa.y, zt], [pb.x, pb.y, zt], cut, { ...lv, wallId: wall.id });
+          }
+        });
+
+        if (li > 0 && lowerColumns) {
+          const lowerKeys = new Set(lowerColumns.keys());
+          const floating = [...columnNodes.keys()].filter((k) => !lowerKeys.has(k)).length;
+          if (floating) {
+            warnings.push(`${level.name}: ${floating} columna${floating > 1 ? "s" : ""} no coincide${floating > 1 ? "n" : ""} con columnas del nivel inferior; apoya${floating > 1 ? "n" : ""} sobre el bastidor y hay que verificarlo.`);
+          }
+        }
+      }
+
+      // ---------- Muros ----------
+      const buildOpenings = (wall, studBottom, studTop) => {
+        const pt = (sPos, z) => {
+          const p = pointOnWall(wall, sPos);
+          return [p.x, p.y, z];
+        };
+        const ex = { ...lv, wallId: wall.id };
+        wall.openings.forEach((o) => {
+          const left = o.offset;
+          const right = o.offset + o.width;
+          const bottom = floorTop + o.sill;
+          const top = floorTop + o.sill + o.height;
+          [left - stud.b / 2, right + stud.b / 2].forEach((sp, side) => {
+            addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, studTop), studTop - studBottom, { ...ex, identity: `${o.id}:jamb:${side}` });
+          });
+          addMember("stud", "Dinteles y antepechos", "estructura", pt(left, top + stud.b / 2), pt(right, top + stud.b / 2), o.width, { ...ex, identity: `${o.id}:header` });
+          if (o.kind === "window") {
+            addMember("stud", "Dinteles y antepechos", "estructura", pt(left, bottom - stud.b / 2), pt(right, bottom - stud.b / 2), o.width, { ...ex, identity: `${o.id}:sill` });
+          }
+          addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left + frame.b / 2, bottom), pt(left + frame.b / 2, top), o.height, { ...ex, identity: `${o.id}:frame:left` });
+          addMember("openingFrame", "Marcos de aberturas", "estructura", pt(right - frame.b / 2, bottom), pt(right - frame.b / 2, top), o.height, { ...ex, identity: `${o.id}:frame:right` });
+          addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, top - frame.b / 2), pt(right, top - frame.b / 2), o.width, { ...ex, identity: `${o.id}:frame:header` });
+          if (o.kind === "window") {
+            addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, bottom + frame.b / 2), pt(right, bottom + frame.b / 2), o.width, { ...ex, identity: `${o.id}:frame:sill` });
+          }
+          distributePositions(left, right, s.wallSpacing)
+            .slice(1, -1)
+            .forEach((sp) => {
+              const upperFrom = top + stud.b;
+              if (studTop - upperFrom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, upperFrom), pt(sp, studTop), studTop - upperFrom, { ...ex, identity: `${o.id}:infill:upper:${round(sp, 6)}` });
+              if (o.kind === "window") {
+                const lowerTo = bottom - stud.b;
+                if (lowerTo - studBottom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, lowerTo), lowerTo - studBottom, { ...ex, identity: `${o.id}:infill:lower:${round(sp, 6)}` });
+              }
+            });
+          if (o.kind === "door") {
+            // hoja entreabierta: muestra la bisagra y hacia dónde abre
+            const leaf = doorLeaf(wall, o);
+            const u = { x: (leaf.freePt.x - leaf.hingePt.x) / o.width, y: (leaf.freePt.y - leaf.hingePt.y) / o.width };
+            const d = { x: Math.cos(DOOR_AJAR) * u.x + Math.sin(DOOR_AJAR) * leaf.out.x, y: Math.cos(DOOR_AJAR) * u.y + Math.sin(DOOR_AJAR) * leaf.out.y };
+            const h = leaf.hingePt;
+            const w = o.width - 0.04;
+            const e = { x: h.x + d.x * w, y: h.y + d.y * w };
+            surfaces.push({
+              ...lv, wallId: wall.id, openingId: o.id,
+              layer: "aberturas",
+              material: "puerta",
+              points: [[h.x, h.y, bottom], [e.x, e.y, bottom], [e.x, e.y, top - 0.01], [h.x, h.y, top - 0.01]],
+              holes: [],
+              area: o.width * o.height
+            });
+          } else {
+            surfaces.push({ ...lv, wallId: wall.id, openingId: o.id, layer: "aberturas", material: "vidrio", points: [pt(left, bottom), pt(right, bottom), pt(right, top), pt(left, top)], holes: [], area: o.width * o.height });
+          }
+        });
+      };
+
+      const wallFrameAt = (wall, normalOffset) => {
+        const dir = wallDir(wall);
+        const n = { x: dir.y, y: -dir.x };
+        return (sPos, z) => {
+          const p = pointOnWall(wall, sPos);
+          return [p.x + n.x * normalOffset, p.y + n.y * normalOffset, z];
+        };
+      };
+      const outwardSign = (wall) => {
+        if (!footprint) return 1;
+        const dir = wallDir(wall);
+        const mid = pointOnWall(wall, wallLength(wall) / 2);
+        return pointInPolygon({ x: mid.x + dir.y * 0.2, y: mid.y - dir.x * 0.2 }, footprint) ? -1 : 1;
+      };
+      const openingHoles = (wall, toPoint) =>
+        wall.openings.map((o) => [
+          toPoint(o.offset, floorTop + o.sill),
+          toPoint(o.offset + o.width, floorTop + o.sill),
+          toPoint(o.offset + o.width, floorTop + o.sill + o.height),
+          toPoint(o.offset, floorTop + o.sill + o.height)
+        ]);
+      const openingArea = (wall) => wall.openings.reduce((sum, o) => sum + o.width * o.height, 0);
+      const topBreakpoints = (wall) => {
+        const L = wallLength(wall);
+        const pts = [0, L];
+        if (footprint && isTop && project.roof.type === "dos_aguas") {
+          const umid = (uRange[0] + uRange[1]) / 2;
+          const ua = spanAxis === "x" ? wall.a.x : wall.a.y;
+          const ub = spanAxis === "x" ? wall.b.x : wall.b.y;
+          if ((ua - umid) * (ub - umid) < 0) pts.push((L * (umid - ua)) / (ub - ua));
+        }
+        return pts.sort((a, b) => a - b);
+      };
+
       exteriorWalls.forEach((wall) => {
         const L = wallLength(wall);
         const dir = wallDir(wall);
-        const onWall = (p) => {
-          const rel = { x: p.x - wall.a.x, y: p.y - wall.a.y };
-          const along = rel.x * dir.x + rel.y * dir.y;
-          const across = Math.abs(rel.x * dir.y - rel.y * dir.x);
-          return across < 0.01 && along > col.b && along < L - col.b ? along : null;
-        };
-        const lowerKeys = new Set(lowerColumns ? lowerColumns.keys() : []);
-        const supported = (pos) => lowerKeys.has(pointKey(pointOnWall(wall, pos)));
-        const positions = [0, L];
-        // columnas del nivel de abajo que caen sobre este muro (continuidad de carga)
-        (lowerColumns ? [...lowerColumns.values()] : []).forEach((p) => {
-          const along = onWall(p);
-          if (along !== null && !insideOpening(wall, along, col.b)) positions.push(along);
-        });
-        // esquinas de los niveles de arriba que apoyan sobre este muro
-        cornersAbove[li].forEach((p) => {
-          const along = onWall(p);
-          if (along !== null && !insideOpening(wall, along, col.b / 2)) positions.push(along);
-        });
-        const sorted = [...new Set(positions.map((v) => round(v, 4)))].sort((a, b) => a - b);
-        const filled = [];
-        sorted.forEach((pos, i) => {
-          filled.push(pos);
-          const next = sorted[i + 1];
-          if (next === undefined) return;
-          // si el vano ya está resuelto abajo, se respeta para que las columnas coincidan
-          if (supported(pos) && supported(next)) return;
-          const gap = next - pos;
-          const n = Math.ceil(gap / system.defaults.maxColumnSpacing - 1e-9);
-          for (let k = 1; k < n; k += 1) {
-            let mid = pos + (gap * k) / n;
-            const hit = openingSpans(wall).find(([a, b]) => mid > a - col.b && mid < b + col.b);
-            if (hit) {
-              const left = hit[0] - col.b;
-              const right = hit[1] + col.b;
-              mid = mid - left < right - mid ? left : right;
-            }
-            if (mid > pos + col.b && mid < next - col.b) filled.push(mid);
-          }
-        });
-        const unique = [...new Set(filled.map((v) => round(v, 4)))].sort((a, b) => a - b);
-        wallColumns.set(wall.id, unique);
-        unique.forEach((pos) => {
-          const p = pointOnWall(wall, pos);
-          columnNodes.set(pointKey(p), p);
-        });
-      });
-
-      columnNodes.forEach((p) => {
-        addMember("column", "Columnas", "estructura", [p.x, p.y, elev], [p.x, p.y, zTop], zTop - elev, lv);
-      });
-
-      exteriorWalls.forEach((wall) => {
-        const cols = wallColumns.get(wall.id);
-        for (let i = 0; i + 1 < cols.length; i += 1) {
-          const pa = pointOnWall(wall, cols[i]);
-          const pb = pointOnWall(wall, cols[i + 1]);
-          const cut = cols[i + 1] - cols[i] - col.b;
-          const zb = elev + ring.h / 2;
-          const zt = zTop - ring.h / 2;
-          addMember("ringBeam", "Bastidor inferior", "estructura", [pa.x, pa.y, zb], [pb.x, pb.y, zb], cut, { ...lv, wallId: wall.id });
-          addMember("ringBeam", "Bastidor superior", "estructura", [pa.x, pa.y, zt], [pb.x, pb.y, zt], cut, { ...lv, wallId: wall.id });
-        }
-      });
-
-      if (li > 0 && lowerColumns) {
-        const lowerKeys = new Set(lowerColumns.keys());
-        const floating = [...columnNodes.keys()].filter((k) => !lowerKeys.has(k)).length;
-        if (floating) {
-          warnings.push(`${level.name}: ${floating} columna${floating > 1 ? "s" : ""} no coincide${floating > 1 ? "n" : ""} con columnas del nivel inferior; apoya${floating > 1 ? "n" : ""} sobre el bastidor y hay que verificarlo.`);
-        }
-      }
-    }
-
-    // ---------- Muros ----------
-    const buildOpenings = (wall, studBottom, studTop) => {
-      const pt = (sPos, z) => {
-        const p = pointOnWall(wall, sPos);
-        return [p.x, p.y, z];
-      };
-      const ex = { ...lv, wallId: wall.id };
-      wall.openings.forEach((o) => {
-        const left = o.offset;
-        const right = o.offset + o.width;
-        const bottom = floorTop + o.sill;
-        const top = floorTop + o.sill + o.height;
-        [left - stud.b / 2, right + stud.b / 2].forEach((sp, side) => {
-          addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, studTop), studTop - studBottom, { ...ex, identity: `${o.id}:jamb:${side}` });
-        });
-        addMember("stud", "Dinteles y antepechos", "estructura", pt(left, top + stud.b / 2), pt(right, top + stud.b / 2), o.width, { ...ex, identity: `${o.id}:header` });
-        if (o.kind === "window") {
-          addMember("stud", "Dinteles y antepechos", "estructura", pt(left, bottom - stud.b / 2), pt(right, bottom - stud.b / 2), o.width, { ...ex, identity: `${o.id}:sill` });
-        }
-        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left + frame.b / 2, bottom), pt(left + frame.b / 2, top), o.height, { ...ex, identity: `${o.id}:frame:left` });
-        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(right - frame.b / 2, bottom), pt(right - frame.b / 2, top), o.height, { ...ex, identity: `${o.id}:frame:right` });
-        addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, top - frame.b / 2), pt(right, top - frame.b / 2), o.width, { ...ex, identity: `${o.id}:frame:header` });
-        if (o.kind === "window") {
-          addMember("openingFrame", "Marcos de aberturas", "estructura", pt(left, bottom + frame.b / 2), pt(right, bottom + frame.b / 2), o.width, { ...ex, identity: `${o.id}:frame:sill` });
-        }
-        distributePositions(left, right, s.wallSpacing)
-          .slice(1, -1)
-          .forEach((sp) => {
-            const upperFrom = top + stud.b;
-            if (studTop - upperFrom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, upperFrom), pt(sp, studTop), studTop - upperFrom, { ...ex, identity: `${o.id}:infill:upper:${round(sp, 6)}` });
-            if (o.kind === "window") {
-              const lowerTo = bottom - stud.b;
-              if (lowerTo - studBottom > 0.05) addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, lowerTo), lowerTo - studBottom, { ...ex, identity: `${o.id}:infill:lower:${round(sp, 6)}` });
-            }
-          });
-        if (o.kind === "door") {
-          // hoja entreabierta: muestra la bisagra y hacia dónde abre
-          const leaf = doorLeaf(wall, o);
-          const u = { x: (leaf.freePt.x - leaf.hingePt.x) / o.width, y: (leaf.freePt.y - leaf.hingePt.y) / o.width };
-          const d = { x: Math.cos(DOOR_AJAR) * u.x + Math.sin(DOOR_AJAR) * leaf.out.x, y: Math.cos(DOOR_AJAR) * u.y + Math.sin(DOOR_AJAR) * leaf.out.y };
-          const h = leaf.hingePt;
-          const w = o.width - 0.04;
-          const e = { x: h.x + d.x * w, y: h.y + d.y * w };
-          surfaces.push({
-            ...lv, wallId: wall.id, openingId: o.id,
-            layer: "aberturas",
-            material: "puerta",
-            points: [[h.x, h.y, bottom], [e.x, e.y, bottom], [e.x, e.y, top - 0.01], [h.x, h.y, top - 0.01]],
-            holes: [],
-            area: o.width * o.height
-          });
-        } else {
-          surfaces.push({ ...lv, wallId: wall.id, openingId: o.id, layer: "aberturas", material: "vidrio", points: [pt(left, bottom), pt(right, bottom), pt(right, top), pt(left, top)], holes: [], area: o.width * o.height });
-        }
-      });
-    };
-
-    const wallFrameAt = (wall, normalOffset) => {
-      const dir = wallDir(wall);
-      const n = { x: dir.y, y: -dir.x };
-      return (sPos, z) => {
-        const p = pointOnWall(wall, sPos);
-        return [p.x + n.x * normalOffset, p.y + n.y * normalOffset, z];
-      };
-    };
-    const outwardSign = (wall) => {
-      if (!footprint) return 1;
-      const dir = wallDir(wall);
-      const mid = pointOnWall(wall, wallLength(wall) / 2);
-      return pointInPolygon({ x: mid.x + dir.y * 0.2, y: mid.y - dir.x * 0.2 }, footprint) ? -1 : 1;
-    };
-    const openingHoles = (wall, toPoint) =>
-      wall.openings.map((o) => [
-        toPoint(o.offset, floorTop + o.sill),
-        toPoint(o.offset + o.width, floorTop + o.sill),
-        toPoint(o.offset + o.width, floorTop + o.sill + o.height),
-        toPoint(o.offset, floorTop + o.sill + o.height)
-      ]);
-    const openingArea = (wall) => wall.openings.reduce((sum, o) => sum + o.width * o.height, 0);
-    const topBreakpoints = (wall) => {
-      const L = wallLength(wall);
-      const pts = [0, L];
-      if (footprint && isTop && project.roof.type === "dos_aguas") {
-        const umid = (uRange[0] + uRange[1]) / 2;
-        const ua = spanAxis === "x" ? wall.a.x : wall.a.y;
-        const ub = spanAxis === "x" ? wall.b.x : wall.b.y;
-        if ((ua - umid) * (ub - umid) < 0) pts.push((L * (umid - ua)) / (ub - ua));
-      }
-      return pts.sort((a, b) => a - b);
-    };
-
-    exteriorWalls.forEach((wall) => {
-      const L = wallLength(wall);
-      const dir = wallDir(wall);
-      const ex = { ...lv, wallId: wall.id };
-      const cols = wallColumns.get(wall.id) ?? [0, L];
-      const studBottom = system.hasMainFrame ? elev + ring.h : floorTop + track.b;
-      const studTop = system.hasMainFrame ? zTop - ring.h : zTop - track.b;
-      const pt = (sp, z) => {
-        const p = pointOnWall(wall, sp);
-        return [p.x, p.y, z];
-      };
-      distributePositions(0, L, s.wallSpacing, cols)
-        .filter((sp) => !cols.some((c) => Math.abs(sp - c) < colB / 2 + stud.b / 2) && !insideOpening(wall, sp, stud.b * 1.5))
-        .forEach((sp) => addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, studTop), studTop - studBottom, ex));
-      buildOpenings(wall, studBottom, studTop);
-
-      let fillArea = 0;
-      if (footprint && isTop) {
-        const parallelToSpan = spanAxis === "x" ? Math.abs(dir.y) < 1e-3 : Math.abs(dir.x) < 1e-3;
-        let maxFill = 0;
-        distributePositions(0, L, s.wallSpacing, cols).forEach((sp) => {
+        const ex = { ...lv, wallId: wall.id };
+        const cols = wallColumns.get(wall.id) ?? [0, L];
+        const studBottom = system.hasMainFrame ? elev + ring.h : floorTop + track.b;
+        const studTop = system.hasMainFrame ? zTop - ring.h : zTop - track.b;
+        const pt = (sp, z) => {
           const p = pointOnWall(wall, sp);
-          const fill = roofUnderside(p) - zTop;
-          maxFill = Math.max(maxFill, fill);
-          if (fill > MIN_FILL) addMember("stud", "Relleno de hastial", "estructura", [p.x, p.y, zTop], [p.x, p.y, zTop + fill], fill, ex);
-        });
-        if (maxFill > MIN_FILL && !parallelToSpan) {
-          const z = roofUnderside(wall.a) - track.b / 2;
-          addMember("track", "Relleno de hastial", "estructura", [wall.a.x, wall.a.y, z], [wall.b.x, wall.b.y, z], L, ex);
-        }
-        if (Math.abs(dir.x) > 1e-3 && Math.abs(dir.y) > 1e-3) warnings.push("Hay muros exteriores no ortogonales: el relleno bajo techo se aproxima.");
-        const bps = topBreakpoints(wall);
-        for (let i = 0; i + 1 < bps.length; i += 1) {
-          const f1 = Math.max(roofUnderside(pointOnWall(wall, bps[i])) - zTop, 0);
-          const f2 = Math.max(roofUnderside(pointOnWall(wall, bps[i + 1])) - zTop, 0);
-          fillArea += ((f1 + f2) / 2) * (bps[i + 1] - bps[i]);
-        }
-      }
+          return [p.x, p.y, z];
+        };
+        distributePositions(0, L, s.wallSpacing, cols)
+          .filter((sp) => !cols.some((c) => Math.abs(sp - c) < colB / 2 + stud.b / 2) && !insideOpening(wall, sp, stud.b * 1.5))
+          .forEach((sp) => addMember("stud", "Montantes", "estructura", pt(sp, studBottom), pt(sp, studTop), studTop - studBottom, ex));
+        buildOpenings(wall, studBottom, studTop);
 
-      // Bajo una parte descubierta el muro sube hasta el techo a un agua (cierra el entretecho)
-      // o hasta el piso terminado de la terraza (frentín).
-      const exposedIvs = footprint && !isTop && exposedItems.length ? exposedWallIntervals(wall, exposedItems, zTop) : [];
-      const profile = exposedIvs.length ? wallTopProfile(L, exposedIvs, zTop) : null;
-      if (profile) {
-        const seen = new Set();
-        exposedIvs.filter((iv) => iv.kind === "techo").forEach((iv) => {
+        let fillArea = 0;
+        if (footprint && isTop) {
+          const parallelToSpan = spanAxis === "x" ? Math.abs(dir.y) < 1e-3 : Math.abs(dir.x) < 1e-3;
           let maxFill = 0;
-          distributePositions(iv.s1, iv.s2, s.wallSpacing).forEach((sp) => {
-            const c = Math.min(Math.max(sp, stud.b / 2), L - stud.b / 2);
-            const fill = iv.z(c) - zTop;
+          distributePositions(0, L, s.wallSpacing, cols).forEach((sp) => {
+            const p = pointOnWall(wall, sp);
+            const fill = roofUnderside(p) - zTop;
             maxFill = Math.max(maxFill, fill);
-            if (fill <= MIN_FILL || seen.has(round(c, 4))) return;
-            seen.add(round(c, 4));
-            const p = pointOnWall(wall, c);
-            addMember("stud", "Relleno de hastial", "estructura", [p.x, p.y, zTop], [p.x, p.y, zTop + fill], fill, ex);
+            if (fill > MIN_FILL) addMember("stud", "Relleno de hastial", "estructura", [p.x, p.y, zTop], [p.x, p.y, zTop + fill], fill, ex);
           });
-          if (maxFill > MIN_FILL) {
-            const pa = pointOnWall(wall, iv.s1);
-            const pb = pointOnWall(wall, iv.s2);
-            const za = iv.z(iv.s1) - track.b / 2;
-            const zb = iv.z(iv.s2) - track.b / 2;
-            addMember("track", "Relleno de hastial", "estructura", [pa.x, pa.y, za], [pb.x, pb.y, zb], Math.hypot(iv.s2 - iv.s1, zb - za), ex);
+          if (maxFill > MIN_FILL && !parallelToSpan) {
+            const z = roofUnderside(wall.a) - track.b / 2;
+            addMember("track", "Relleno de hastial", "estructura", [wall.a.x, wall.a.y, z], [wall.b.x, wall.b.y, z], L, ex);
           }
-        });
-        for (let i = 0; i + 1 < profile.length; i += 1) {
-          fillArea += ((profile[i].z + profile[i + 1].z) / 2 - zTop) * (profile[i + 1].s - profile[i].s);
+          if (Math.abs(dir.x) > 1e-3 && Math.abs(dir.y) > 1e-3) warnings.push("Hay muros exteriores no ortogonales: el relleno bajo techo se aproxima.");
+          const bps = topBreakpoints(wall);
+          for (let i = 0; i + 1 < bps.length; i += 1) {
+            const f1 = Math.max(roofUnderside(pointOnWall(wall, bps[i])) - zTop, 0);
+            const f2 = Math.max(roofUnderside(pointOnWall(wall, bps[i + 1])) - zTop, 0);
+            fillArea += ((f1 + f2) / 2) * (bps[i + 1] - bps[i]);
+          }
         }
-      }
 
-      const sign = outwardSign(wall);
-      const extPt = wallFrameAt(wall, sign * 0.065);
-      const intPt = wallFrameAt(wall, -sign * 0.065);
-      const bps = topBreakpoints(wall);
-      const topZ = (sp) => Math.max(roofUnderside(pointOnWall(wall, sp)), zTop);
-      const extOutline = profile
-        ? [extPt(0, elev), extPt(L, elev), ...[...profile].reverse().map((pt) => extPt(pt.s, pt.z))]
-        : [extPt(0, elev), extPt(L, elev), ...[...bps].reverse().map((sp) => extPt(sp, topZ(sp)))];
-      const extArea = area3D(extOutline) - openingArea(wall);
-      surfaces.push({ ...lv, wallId: wall.id, layer: "cerramientos", material: "exterior", points: extOutline, holes: openingHoles(wall, extPt), area: extArea });
-      const intArea = L * height - openingArea(wall);
-      surfaces.push({
-        ...lv, wallId: wall.id, coreArea_m2: intArea,
-        layer: "cerramientos",
-        material: "interior",
-        points: [intPt(0, floorTop), intPt(L, floorTop), intPt(L, zTop), intPt(0, zTop)],
-        holes: openingHoles(wall, intPt),
-        area: intArea
-      });
-      wallSummaries.push({ ...lv, wallId: wall.id, type: "exterior", length: L, extArea, intArea, fillArea, openingArea: openingArea(wall) });
-    });
+        // Bajo una parte descubierta el muro sube hasta el techo a un agua (cierra el entretecho)
+        // o hasta el piso terminado de la terraza (frentín).
+        const exposedIvs = footprint && !isTop && exposedItems.length ? exposedWallIntervals(wall, exposedItems, zTop) : [];
+        const profile = exposedIvs.length ? wallTopProfile(L, exposedIvs, zTop) : null;
+        if (profile) {
+          const seen = new Set();
+          exposedIvs.filter((iv) => iv.kind === "techo").forEach((iv) => {
+            let maxFill = 0;
+            distributePositions(iv.s1, iv.s2, s.wallSpacing).forEach((sp) => {
+              const c = Math.min(Math.max(sp, stud.b / 2), L - stud.b / 2);
+              const fill = iv.z(c) - zTop;
+              maxFill = Math.max(maxFill, fill);
+              if (fill <= MIN_FILL || seen.has(round(c, 4))) return;
+              seen.add(round(c, 4));
+              const p = pointOnWall(wall, c);
+              addMember("stud", "Relleno de hastial", "estructura", [p.x, p.y, zTop], [p.x, p.y, zTop + fill], fill, ex);
+            });
+            if (maxFill > MIN_FILL) {
+              const pa = pointOnWall(wall, iv.s1);
+              const pb = pointOnWall(wall, iv.s2);
+              const za = iv.z(iv.s1) - track.b / 2;
+              const zb = iv.z(iv.s2) - track.b / 2;
+              addMember("track", "Relleno de hastial", "estructura", [pa.x, pa.y, za], [pb.x, pb.y, zb], Math.hypot(iv.s2 - iv.s1, zb - za), ex);
+            }
+          });
+          for (let i = 0; i + 1 < profile.length; i += 1) {
+            fillArea += ((profile[i].z + profile[i + 1].z) / 2 - zTop) * (profile[i + 1].s - profile[i].s);
+          }
+        }
 
-    interiorWalls.forEach((wall) => {
-      const L = wallLength(wall);
-      const ex = { ...lv, wallId: wall.id };
-      const studBottom = floorTop + track.b;
-      const studTop = zTop - track.b;
-      const pt = (sp, z) => {
-        const p = pointOnWall(wall, sp);
-        return [p.x, p.y, z];
-      };
-      const doorSpans = wall.openings.filter((o) => o.kind === "door").map((o) => [o.offset, o.offset + o.width]).sort((a, b) => a[0] - b[0]);
-      let cursor = 0;
-      [...doorSpans, [L, L]].forEach(([a, b]) => {
-        if (a - cursor > 0.05) addMember("track", "Soleras", "estructura", pt(cursor, floorTop + track.b / 2), pt(a, floorTop + track.b / 2), a - cursor, { ...ex, identity: `bottom:${round(cursor, 6)}..${round(a, 6)}` });
-        cursor = b;
-      });
-      addMember("track", "Soleras", "estructura", pt(0, zTop - track.b / 2), pt(L, zTop - track.b / 2), L, { ...ex, identity: "top" });
-      distributePositions(0, L, s.wallSpacing)
-        .filter((sp) => !insideOpening(wall, sp, stud.b * 1.5))
-        .forEach((sp) => {
-          const c = Math.min(Math.max(sp, stud.b / 2), L - stud.b / 2);
-          addMember("stud", "Montantes", "estructura", pt(c, studBottom), pt(c, studTop), studTop - studBottom, ex);
-        });
-      buildOpenings(wall, studBottom, studTop);
-      const area = L * height - openingArea(wall);
-      [wallFrameAt(wall, 0.065), wallFrameAt(wall, -0.065)].forEach((toPt, face) => {
+        const sign = outwardSign(wall);
+        const extPt = wallFrameAt(wall, sign * 0.065);
+        const intPt = wallFrameAt(wall, -sign * 0.065);
+        const bps = topBreakpoints(wall);
+        const topZ = (sp) => Math.max(roofUnderside(pointOnWall(wall, sp)), zTop);
+        const extOutline = profile
+          ? [extPt(0, elev), extPt(L, elev), ...[...profile].reverse().map((pt) => extPt(pt.s, pt.z))]
+          : [extPt(0, elev), extPt(L, elev), ...[...bps].reverse().map((sp) => extPt(sp, topZ(sp)))];
+        const extArea = area3D(extOutline) - openingArea(wall);
+        surfaces.push({ ...lv, wallId: wall.id, layer: "cerramientos", material: "exterior", points: extOutline, holes: openingHoles(wall, extPt), area: extArea });
+        const intArea = L * height - openingArea(wall);
         surfaces.push({
-          ...lv, wallId: wall.id, face, coreArea_m2: face === 0 && s.interiorWallInsulation ? area : 0,
+          ...lv, wallId: wall.id, coreArea_m2: intArea,
           layer: "cerramientos",
           material: "interior",
-          points: [toPt(0, floorTop), toPt(L, floorTop), toPt(L, zTop), toPt(0, zTop)],
-          holes: openingHoles(wall, toPt),
-          area
+          points: [intPt(0, floorTop), intPt(L, floorTop), intPt(L, zTop), intPt(0, zTop)],
+          holes: openingHoles(wall, intPt),
+          area: intArea
         });
+        wallSummaries.push({ ...lv, wallId: wall.id, type: "exterior", length: L, extArea, intArea, fillArea, openingArea: openingArea(wall) });
       });
-      wallSummaries.push({ ...lv, wallId: wall.id, type: "interior", length: L, faceArea: area, openingArea: openingArea(wall) });
-    });
 
-    // ---------- Escaleras que arrancan en este nivel ----------
-    stairLayouts
-      .filter((lay) => lay.level === li && lay.solution.ok)
-      .forEach((lay) => {
-        lay.stats = buildStair(lay, {
-          add: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "escaleras", a3, b3, cut, extra),
-          prof, surfaces, walls: level.walls, lv, f0: floorTop
-        });
-        const warn = (text) => {
-          lay.warnings.push(text);
-          warnings.push(`Escalera de ${level.name}: ${text}`);
+      interiorWalls.forEach((wall) => {
+        const L = wallLength(wall);
+        const ex = { ...lv, wallId: wall.id };
+        const studBottom = floorTop + track.b;
+        const studTop = zTop - track.b;
+        const pt = (sp, z) => {
+          const p = pointOnWall(wall, sp);
+          return [p.x, p.y, z];
         };
-        const shrink = (r, d) => ({ x0: r.x0 + d, x1: r.x1 - d, y0: r.y0 + d, y1: r.y1 - d });
-        const cornersOf = (r) => [{ x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }];
-        if (footprint && lay.rects.some((r) => cornersOf(shrink(r, 0.03)).some((c) => !pointInPolygon(c, footprint)))) {
-          warn("queda (en parte) fuera de la planta.");
-        }
-        if (level.walls.some((wl) => lay.rects.some((r) => segmentCrossesRect(wl.a, wl.b, r, 0.08)))) {
-          warn("corta un muro o tabique. Movela o cambiá el tipo (recta, L, U).");
-        }
-        level.walls.forEach((wl) =>
-          wl.openings
-            .filter((o) => o.kind === "door")
-            .forEach((o) => {
-              const leaf = doorLeaf(wl, o);
-              const far = { x: leaf.freePt.x + leaf.out.x * o.width, y: leaf.freePt.y + leaf.out.y * o.width };
-              const pts = [leaf.hingePt, leaf.freePt, leaf.tip, far];
-              const sweep = { x0: Math.min(...pts.map((q) => q.x)), x1: Math.max(...pts.map((q) => q.x)), y0: Math.min(...pts.map((q) => q.y)), y1: Math.max(...pts.map((q) => q.y)) };
-              const overlap = lay.rects.some((r) => Math.min(r.x1, sweep.x1) - Math.max(r.x0, sweep.x0) > 0.05 && Math.min(r.y1, sweep.y1) - Math.max(r.y0, sweep.y0) > 0.05);
-              if (overlap) warn("una puerta barre sobre la escalera. Cambiá el sentido de apertura o mové la escalera.");
-            })
-        );
-        const upFoot = footprints[li + 1];
-        const upWalls = project.levels[li + 1]?.walls ?? [];
-        const arr = shrink(lay.arrival, 0.03);
-        if (upFoot && cornersOf(arr).some((c) => !pointInPolygon(c, upFoot))) warn(`la llegada queda fuera de ${project.levels[li + 1].name}.`);
-        if (upWalls.some((wl) => segmentCrossesRect(wl.a, wl.b, lay.arrival, 0.08))) warn(`un muro de ${project.levels[li + 1].name} bloquea la llegada.`);
-        if (upWalls.some((wl) => lay.holeRects.some((r) => segmentCrossesRect(wl.a, wl.b, r, 0.08)))) warn(`el hueco del entrepiso corta un muro de ${project.levels[li + 1].name}.`);
+        const doorSpans = wall.openings.filter((o) => o.kind === "door").map((o) => [o.offset, o.offset + o.width]).sort((a, b) => a[0] - b[0]);
+        let cursor = 0;
+        [...doorSpans, [L, L]].forEach(([a, b]) => {
+          if (a - cursor > 0.05) addMember("track", "Soleras", "estructura", pt(cursor, floorTop + track.b / 2), pt(a, floorTop + track.b / 2), a - cursor, { ...ex, identity: `bottom:${round(cursor, 6)}..${round(a, 6)}` });
+          cursor = b;
+        });
+        addMember("track", "Soleras", "estructura", pt(0, zTop - track.b / 2), pt(L, zTop - track.b / 2), L, { ...ex, identity: "top" });
+        distributePositions(0, L, s.wallSpacing)
+          .filter((sp) => !insideOpening(wall, sp, stud.b * 1.5))
+          .forEach((sp) => {
+            const c = Math.min(Math.max(sp, stud.b / 2), L - stud.b / 2);
+            addMember("stud", "Montantes", "estructura", pt(c, studBottom), pt(c, studTop), studTop - studBottom, ex);
+          });
+        buildOpenings(wall, studBottom, studTop);
+        const area = L * height - openingArea(wall);
+        [wallFrameAt(wall, 0.065), wallFrameAt(wall, -0.065)].forEach((toPt, face) => {
+          surfaces.push({
+            ...lv, wallId: wall.id, face, coreArea_m2: face === 0 && s.interiorWallInsulation ? area : 0,
+            layer: "cerramientos",
+            material: "interior",
+            points: [toPt(0, floorTop), toPt(L, floorTop), toPt(L, zTop), toPt(0, zTop)],
+            holes: openingHoles(wall, toPt),
+            area
+          });
+        });
+        wallSummaries.push({ ...lv, wallId: wall.id, type: "interior", length: L, faceArea: area, openingArea: openingArea(wall) });
       });
 
-    // ---------- Piso o entrepiso ----------
-    const scanAxis = spanAxis === "x" ? "y" : "x";
-    const bOf = (p) => (scanAxis === "x" ? p.x : p.y);
-    const makePoint = (u, b) => (spanAxis === "x" ? { x: u, y: b } : { x: b, y: u });
-
-    if (footprint) {
-      const area = polygonArea(footprint);
-      totals.coveredArea += area;
-      if (li === 0) {
-        totals.footprintArea = area;
-        totals.perimeter = polygonPerimeter(footprint);
-      }
-      let overhangArea = 0;
-      if (li > 0 && footprints[li - 1]) {
-        const overRects = differenceRects(footprint, footprints[li - 1]);
-        overhangArea = overRects.reduce((sum, r) => sum + (r.x1 - r.x0) * (r.y1 - r.y0), 0);
-        if (overhangArea > 0.01) {
-          warnings.push(`${level.name}: ${round(overhangArea, 2)} m² quedan en voladizo sobre el nivel inferior; verificá la estructura.`);
-          // cierre inferior del volado: el piso queda a la intemperie por debajo
-          const zs = elev - 0.005;
-          overRects.forEach((r, k) => {
-            surfaces.push({
-              ...lv, layer: "cerramientos", material: "volado", face: `volado:${k}`,
-              points: [[r.x0, r.y0, zs], [r.x1, r.y0, zs], [r.x1, r.y1, zs], [r.x0, r.y1, zs]], holes: [], area: (r.x1 - r.x0) * (r.y1 - r.y0)
-            });
+      // ---------- Escaleras que arrancan en este nivel ----------
+      stairLayouts
+        .filter((lay) => lay.level === li && lay.solution.ok && (regions.length === 1 || pointInPolygon({ x: lay.stair.x, y: lay.stair.y }, footprint)))
+        .forEach((lay) => {
+          lay.stats = buildStair(lay, {
+            add: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "escaleras", a3, b3, cut, extra),
+            prof, surfaces, walls: level.walls, lv, f0: floorTop
           });
-          totals.soffitArea += overhangArea;
-        }
-      }
-
-      if (elevated) {
-        const group = li === 0 ? "Viguetas de piso" : "Viguetas de entrepiso";
-        const holes = holesByLevel[li] ?? [];
-        const uOf = (p) => (spanAxis === "x" ? p.x : p.y);
-        const hb = joist.b; // ancho de brochales y vigas de borde
-        const edgeJoists = [];
-        const headers = [];
-        holes.forEach((loop) =>
-          loop.forEach((p, i) => {
-            const q = loop[(i + 1) % loop.length];
-            const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
-            if (Math.abs(bOf(p) - bOf(q)) < 1e-6) {
-              const c = bOf(p);
-              const inside = pointInPolygon(makePoint(uOf(mid), c + 0.01), loop);
-              edgeJoists.push(c + (inside ? -1 : 1) * (hb / 2));
-            } else if (Math.abs(uOf(p) - uOf(q)) < 1e-6) {
-              const u0 = uOf(p);
-              const inside = pointInPolygon(makePoint(u0 + 0.01, bOf(mid)), loop);
-              headers.push({ u: u0 + (inside ? -1 : 1) * (hb / 2), b0: Math.min(bOf(p), bOf(q)), b1: Math.max(bOf(p), bOf(q)) });
-            }
-          })
-        );
-        const holeCut = (c, span) => {
-          let pieces = [span];
-          holes.forEach((loop) =>
-            scanPolygon(loop, scanAxis, c).forEach(([h1, h2]) => {
-              const lo = h1 - hb;
-              const hi = h2 + hb;
-              pieces = pieces.flatMap(([a, b]) => [[a, Math.min(b, lo)], [Math.max(a, hi), b]]).filter(([a, b]) => b - a > 0.05);
-            })
+          const warn = (text) => {
+            lay.warnings.push(text);
+            warnings.push(`Escalera de ${level.name}: ${text}`);
+          };
+          const shrink = (r, d) => ({ x0: r.x0 + d, x1: r.x1 - d, y0: r.y0 + d, y1: r.y1 - d });
+          const cornersOf = (r) => [{ x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }];
+          if (footprint && lay.rects.some((r) => cornersOf(shrink(r, 0.03)).some((c) => !pointInPolygon(c, footprint)))) {
+            warn("queda (en parte) fuera de la planta.");
+          }
+          if (level.walls.some((wl) => lay.rects.some((r) => segmentCrossesRect(wl.a, wl.b, r, 0.08)))) {
+            warn("corta un muro o tabique. Movela o cambiá el tipo (recta, L, U).");
+          }
+          level.walls.forEach((wl) =>
+            wl.openings
+              .filter((o) => o.kind === "door")
+              .forEach((o) => {
+                const leaf = doorLeaf(wl, o);
+                const far = { x: leaf.freePt.x + leaf.out.x * o.width, y: leaf.freePt.y + leaf.out.y * o.width };
+                const pts = [leaf.hingePt, leaf.freePt, leaf.tip, far];
+                const sweep = { x0: Math.min(...pts.map((q) => q.x)), x1: Math.max(...pts.map((q) => q.x)), y0: Math.min(...pts.map((q) => q.y)), y1: Math.max(...pts.map((q) => q.y)) };
+                const overlap = lay.rects.some((r) => Math.min(r.x1, sweep.x1) - Math.max(r.x0, sweep.x0) > 0.05 && Math.min(r.y1, sweep.y1) - Math.max(r.y0, sweep.y0) > 0.05);
+                if (overlap) warn("una puerta barre sobre la escalera. Cambiá el sentido de apertura o mové la escalera.");
+              })
           );
-          return pieces;
-        };
-        const bCoords = footprint.map(bOf);
-        const positions = distributePositions(Math.min(...bCoords), Math.max(...bCoords), s.floorSpacing, bCoords).filter(
-          (c) => !bCoords.some((v) => Math.abs(v - c) < (ring.b + joist.b) / 2) && !edgeJoists.some((e) => Math.abs(e - c) < hb)
-        );
-        const zJ = elev + ring.h - joist.h / 2;
-        let maxSpan = 0;
-        const placeJoist = (c, grp) => {
-          scanPolygon(footprint, scanAxis, c).forEach(([u1, u2]) => {
-            maxSpan = Math.max(maxSpan, u2 - u1);
-            (holes.length ? holeCut(c, [u1, u2]) : [[u1, u2]]).forEach(([a, b]) => {
-              const a2 = Math.abs(a - u1) < 1e-9 ? a + ring.b / 2 : a;
-              const b2 = Math.abs(b - u2) < 1e-9 ? b - ring.b / 2 : b;
-              const p1 = makePoint(a2, c);
-              const p2 = makePoint(b2, c);
-              addMember("floorJoist", grp, "piso", [p1.x, p1.y, zJ], [p2.x, p2.y, zJ], b2 - a2, lv);
-            });
-          });
-        };
-        positions.forEach((c) => placeJoist(c, group));
-        [...new Set(edgeJoists.map((c) => round(c, 4)))].forEach((c) => placeJoist(c, "Vigas de borde del hueco"));
-        headers.forEach((hd) => {
-          const p1 = makePoint(hd.u, hd.b0);
-          const p2 = makePoint(hd.u, hd.b1);
-          addMember("floorJoist", "Brochales del hueco", "piso", [p1.x, p1.y, zJ], [p2.x, p2.y, zJ], hd.b1 - hd.b0, lv);
+          const upFoot = footprints[li + 1];
+          const upWalls = project.levels[li + 1]?.walls ?? [];
+          const arr = shrink(lay.arrival, 0.03);
+          if (upFoot && cornersOf(arr).some((c) => !pointInPolygon(c, upFoot))) warn(`la llegada queda fuera de ${project.levels[li + 1].name}.`);
+          if (upWalls.some((wl) => segmentCrossesRect(wl.a, wl.b, lay.arrival, 0.08))) warn(`un muro de ${project.levels[li + 1].name} bloquea la llegada.`);
+          if (upWalls.some((wl) => lay.holeRects.some((r) => segmentCrossesRect(wl.a, wl.b, r, 0.08)))) warn(`el hueco del entrepiso corta un muro de ${project.levels[li + 1].name}.`);
         });
-        if (maxSpan > system.defaults.maxJoistSpan) {
-          warnings.push(`${multi ? `${level.name}: l` : "L"}as viguetas de ${li === 0 ? "piso" : "entrepiso"} salvan ${round(maxSpan, 2)} m: verificá la sección o agregá una viga intermedia con apoyo.`);
+
+      // ---------- Piso o entrepiso ----------
+      const scanAxis = spanAxis === "x" ? "y" : "x";
+      const bOf = (p) => (scanAxis === "x" ? p.x : p.y);
+      const makePoint = (u, b) => (spanAxis === "x" ? { x: u, y: b } : { x: b, y: u });
+
+      if (footprint) {
+        const area = polygonArea(footprint);
+        totals.coveredArea += area;
+        if (li === 0) {
+          totals.footprintArea += area;
+          totals.perimeter += polygonPerimeter(footprint);
         }
-        // Baranda en los bordes del hueco, salvo la llegada de la escalera y los bordes contra muros
-        const arrivals = arrivalsByLevel[li] ?? [];
-        holes.forEach((loop, hi) =>
-          loop.forEach((p, i) => {
-            const q = loop[(i + 1) % loop.length];
-            const e = { x: q.x - p.x, y: q.y - p.y };
-            const L = Math.hypot(e.x, e.y);
-            if (L < 0.05) return;
-            const ux = { x: e.x / L, y: e.y / L };
-            let free = [[0, L]];
-            arrivals.forEach(([A, B]) => {
-              const offA = Math.abs((A.x - p.x) * ux.y - (A.y - p.y) * ux.x);
-              const offB = Math.abs((B.x - p.x) * ux.y - (B.y - p.y) * ux.x);
-              if (offA > 0.02 || offB > 0.02) return;
-              const ta = (A.x - p.x) * ux.x + (A.y - p.y) * ux.y;
-              const tb = (B.x - p.x) * ux.x + (B.y - p.y) * ux.y;
-              const lo = Math.min(ta, tb);
-              const hi2 = Math.max(ta, tb);
-              free = free.flatMap(([a, b]) => [[a, Math.min(b, lo)], [Math.max(a, hi2), b]]).filter(([a, b]) => b - a > 0.1);
-            });
-            const mid = { x: p.x + e.x / 2, y: p.y + e.y / 2 };
-            const n = { x: ux.y, y: -ux.x };
-            const out = pointInPolygon({ x: mid.x + n.x * 0.02, y: mid.y + n.y * 0.02 }, loop) ? { x: -n.x, y: -n.y } : n;
-            free.forEach(([a, b], k) => {
-              const A = { x: p.x + ux.x * a + out.x * 0.03, y: p.y + ux.y * a + out.y * 0.03 };
-              const B = { x: p.x + ux.x * b + out.x * 0.03, y: p.y + ux.y * b + out.y * 0.03 };
-              if (alongWall(A, B, level.walls)) return;
-              railAlong((role, grp, a3, b3, cut, extra) => addMember(role, grp, "escaleras", a3, b3, cut, extra), {
-                a: A, b: B, za: floorTop, zb: floorTop, height: guardByLevel[li] ?? 1.0, kind: "baranda", gap: 0.1,
-                identity: `hueco:${hi}:${i}:${k}`, prof, lv
+        let overhangArea = 0;
+        if (li > 0 && footprints[li - 1]) {
+          const overRects = differenceRects(footprint, footprints[li - 1]);
+          overhangArea = overRects.reduce((sum, r) => sum + (r.x1 - r.x0) * (r.y1 - r.y0), 0);
+          if (overhangArea > 0.01) {
+            warnings.push(`${level.name}: ${round(overhangArea, 2)} m² quedan en voladizo sobre el nivel inferior; verificá la estructura.`);
+            // cierre inferior del volado: el piso queda a la intemperie por debajo
+            const zs = elev - 0.005;
+            overRects.forEach((r, k) => {
+              surfaces.push({
+                ...lv, layer: "cerramientos", material: "volado", face: `volado:${k}`,
+                points: [[r.x0, r.y0, zs], [r.x1, r.y0, zs], [r.x1, r.y1, zs], [r.x0, r.y1, zs]], holes: [], area: (r.x1 - r.x0) * (r.y1 - r.y0)
               });
             });
-          })
-        );
-        const holeArea = holes.reduce((sum, loop) => sum + Math.abs(polygonArea(loop)), 0);
-        const deckArea = area - holeArea;
-        if (li === 0) totals.floorDeckArea = deckArea;
-        else totals.mezzanineDeckArea += deckArea;
-        surfaces.push({
-          ...lv, layer: "piso", material: "piso", points: footprint.map((p) => [p.x, p.y, floorTop]),
-          holes: holes.map((loop) => loop.map((p) => [p.x, p.y, floorTop])), area: deckArea,
-          ...(overhangArea > 0.01 ? { overhangArea_m2: overhangArea } : {})
-        });
-      } else {
-        surfaces.push({ ...lv, layer: "piso", material: "platea", points: footprint.map((p) => [p.x, p.y, floorTop + 0.002]), holes: [], area });
-      }
-
-      // ---------- Cielorraso bajo cubierta ----------
-      // Se genera donde hay techo, no debajo de otro piso (su paquete ya incluye placa).
-      // Los tubos apoyan en un marco perimetral propio. No se supone un sistema colgado.
-      const ceilingPolygons = isTop ? [footprint] : differenceRects(footprint, above).map((r) => [
-        { x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }
-      ]);
-      // bajo una terraza las viguetas bajan para dejar el escalón de la puerta: el cielorraso baja con ellas
-      const ceilingDrop = (cb) => {
-        const c = { x: (cb.minX + cb.maxX) / 2, y: (cb.minY + cb.maxY) / 2 };
-        const item = exposedItems.find(({ part, plane }) => plane.kind === "terraza" && part.rects.some((r) => c.x > r.x0 && c.x < r.x1 && c.y > r.y0 && c.y < r.y1));
-        return item ? Math.max(0, zTop - ring.h - (item.plane.joistTop - joist.h)) : 0;
-      };
-      ceilingPolygons.forEach((polygon) => {
-        const cb = bbox(polygon);
-        const axis = cb.maxX - cb.minX <= cb.maxY - cb.minY ? "x" : "y";
-        const scan = axis === "x" ? "y" : "x";
-        const drop = ceilingDrop(cb);
-        const z = zTop - ring.h - ceiling.h / 2 - drop;
-        const cmin = scan === "x" ? cb.minX : cb.minY;
-        const cmax = scan === "x" ? cb.maxX : cb.maxY;
-        distributePositions(cmin + ceiling.b / 2, cmax - ceiling.b / 2, 0.4).forEach((c) => {
-          scanPolygon(polygon, scan, c).forEach(([u1, u2]) => {
-            const a = axis === "x" ? [u1 + ceiling.b, c, z] : [c, u1 + ceiling.b, z];
-            const b = axis === "x" ? [u2 - ceiling.b, c, z] : [c, u2 - ceiling.b, z];
-            addMember("ceilingJoist", "Viguetas de cielorraso", "cielorraso", a, b, u2 - u1 - 2 * ceiling.b, lv);
-          });
-        });
-        polygon.forEach((p, i) => {
-          const q = polygon[(i + 1) % polygon.length];
-          addMember("ceilingTrack", "Marco de cielorraso", "cielorraso", [p.x, p.y, z], [q.x, q.y, z], Math.hypot(q.x - p.x, q.y - p.y), lv);
-        });
-        const a = Math.abs(polygonArea(polygon));
-        const boardZ = zTop - ring.h - ceiling.h - 0.0125 - drop;
-        surfaces.push({ ...lv, layer: "cielorraso", material: "cielorraso", points: polygon.map((p) => [p.x, p.y, boardZ]), holes: [], area: a });
-        totals.ceilingArea += a;
-      });
-
-      // ---------- Techo ----------
-      if (isTop) {
-        const roofOutline = offsetPolygon(footprint, project.roof.overhang);
-        const [umin, umax] = uRange;
-        const umid = (umin + umax) / 2;
-        const bCoordsRoof = [...footprint.map(bOf), ...roofOutline.map(bOf)];
-        const rafterPositions = distributePositions(Math.min(...bCoordsRoof) + rafter.b / 2, Math.max(...bCoordsRoof) - rafter.b / 2, s.roofSpacing, footprint.map(bOf));
-        const rafterPoint = (u, c) => {
-          const p = makePoint(u, c);
-          return [p.x, p.y, roofUnderside(p) + rafter.h / 2];
-        };
-        rafterPositions.forEach((c) => {
-          scanPolygon(roofOutline, scanAxis, c).forEach(([u1, u2]) => {
-            const segments = project.roof.type === "dos_aguas" && u1 < umid && u2 > umid ? [[u1, umid - ridge.b / 2], [umid + ridge.b / 2, u2]] : [[u1, u2]];
-            segments.forEach(([a, b]) => {
-              const A = rafterPoint(a, c);
-              const B = rafterPoint(b, c);
-              addMember("rafter", "Cabios", "techo", A, B, Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]), lv);
-            });
-          });
-        });
-        if (project.roof.type === "dos_aguas") {
-          scanPolygon(roofOutline, spanAxis, umid).forEach(([b1, b2]) => {
-            const p1 = makePoint(umid, b1);
-            const p2 = makePoint(umid, b2);
-            const z = roofUnderside(p1) + rafter.h - ridge.h / 2;
-            addMember("ridge", "Cumbrera", "techo", [p1.x, p1.y, z], [p2.x, p2.y, z], b2 - b1, lv);
-          });
-        }
-        roofOutline.forEach((p, i) => {
-          const q = roofOutline[(i + 1) % roofOutline.length];
-          const du = spanAxis === "x" ? q.x - p.x : q.y - p.y;
-          if (Math.abs(du) > EPS) return;
-          const za = roofUnderside(p) + rafter.h / 2;
-          addMember("roofEdge", "Cenefas", "techo", [p.x, p.y, za], [q.x, q.y, za], Math.hypot(q.x - p.x, q.y - p.y), lv);
-        });
-        const planes =
-          project.roof.type === "dos_aguas"
-            ? [clipPolygonHalfPlane(roofOutline, spanAxis, umid, "below"), clipPolygonHalfPlane(roofOutline, spanAxis, umid, "above")].filter((pl) => pl.length >= 3)
-            : [roofOutline];
-        planes.forEach((plane, planeIndex) => {
-          const pts = plane.map((p) => [p.x, p.y, roofUnderside(p) + rafter.h]);
-          const a = area3D(pts);
-          totals.roofArea += a;
-          const covered = project.roof.type === "dos_aguas"
-            ? clipPolygonHalfPlane(footprint, spanAxis, umid, planeIndex === 0 ? "below" : "above")
-            : footprint;
-          surfaces.push({ ...lv, layer: "cubierta", material: "cubierta", points: pts, holes: [], area: a, coveredArea_m2: Math.abs(polygonArea(covered)) });
-        });
-        totals.roofPlanArea += Math.abs(polygonArea(roofOutline));
-        totals.roofCoveredArea += area;
-      } else {
-        // parte de este nivel que queda descubierta por el nivel de arriba: techo a un agua o terraza
-        if (!isOrthogonal(footprint) || !isOrthogonal(above)) warnings.push(`${level.name}: la cubierta descubierta se aproxima porque hay muros no ortogonales.`);
-        const upLevel = project.levels[li + 1];
-        const up = levelZ[li + 1];
-        const ctx = {
-          add: addMember,
-          addRail: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "balcones", a3, b3, cut, extra),
-          prof, s, lv, surfaces, totals, cfg: exposedCfg, above, footprint, ring, placed: new Set()
-        };
-        const fmt = (v) => String(round(v, 2)).replace(".", ",");
-        exposedItems.forEach(({ part, plane }, pi) => {
-          if (plane.kind === "terraza") {
-            const r = buildTerrace(part, pi, plane, ctx);
-            if (r.maxSpan > system.defaults.maxJoistSpan) warnings.push(`${level.name}: las viguetas de la terraza salvan ${fmt(r.maxSpan)} m: verificá la sección o agregá una viga con apoyo.`);
-          } else {
-            buildExposedRoof(part, pi, plane, ctx);
+            totals.soffitArea += overhangArea;
           }
-          if (part.drainsToUpper) warnings.push(`${level.name}: una parte descubierta desagua contra ${upLevel.name}; lleva canaleta y embudo en ese encuentro.`);
-        });
-        if (exposedItems.some(({ part }) => part.split)) {
-          warnings.push(`${level.name}: la parte descubierta rodea a ${upLevel.name}; se resolvió en paños que desaguan cada uno hacia afuera. Revisá los encuentros entre paños.`);
         }
-        const minSlope = MIN_ROOF_SLOPE[s.roofCladding];
-        if (exposedCfg.kind === "techo" && minSlope && exposedCfg.slope < minSlope) {
-          warnings.push(`${level.name}: el techo de la parte descubierta tiene ${fmt(exposedCfg.slope)} % y la cubierta elegida pide al menos ${minSlope} % (dato de fabricantes, confirmar ficha).`);
-        }
-        const openings = exposedItems.flatMap(({ part, plane }, pi) => openingsOnUpperEdges(part, upLevel.walls).map((f) => ({ ...f, plane, pi })));
-        if (exposedCfg.kind === "techo") {
-          openings.forEach(({ o, p1, p2, plane }) => {
-            if (o.kind === "door") {
-              warnings.push(`${upLevel.name}: una puerta da al techo de ${level.name}. Si se sale por ahí, elegí «Terraza transitable» para la parte descubierta.`);
-              return;
-            }
-            const roofTop = Math.max(plane.under(p1), plane.under(p2)) + rafter.h + FLASHING_UPSTAND;
-            if (roofTop > up.floorTop + o.sill - 1e-6) {
-              warnings.push(`${upLevel.name}: el techo de ${level.name} con su babeta llega a ${fmt(roofTop - up.floorTop)} m sobre el piso y tapa una ventana (antepecho ${fmt(o.sill)} m). Bajá la pendiente o subí el antepecho.`);
-            }
+
+        if (elevated) {
+          const group = li === 0 ? "Viguetas de piso" : "Viguetas de entrepiso";
+          const holes = regionHoles;
+          const uOf = (p) => (spanAxis === "x" ? p.x : p.y);
+          const hb = joist.b; // ancho de brochales y vigas de borde
+          const edgeJoists = [];
+          const headers = [];
+          holes.forEach((loop) =>
+            loop.forEach((p, i) => {
+              const q = loop[(i + 1) % loop.length];
+              const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+              if (Math.abs(bOf(p) - bOf(q)) < 1e-6) {
+                const c = bOf(p);
+                const inside = pointInPolygon(makePoint(uOf(mid), c + 0.01), loop);
+                edgeJoists.push(c + (inside ? -1 : 1) * (hb / 2));
+              } else if (Math.abs(uOf(p) - uOf(q)) < 1e-6) {
+                const u0 = uOf(p);
+                const inside = pointInPolygon(makePoint(u0 + 0.01, bOf(mid)), loop);
+                headers.push({ u: u0 + (inside ? -1 : 1) * (hb / 2), b0: Math.min(bOf(p), bOf(q)), b1: Math.max(bOf(p), bOf(q)) });
+              }
+            })
+          );
+          const holeCut = (c, span) => {
+            let pieces = [span];
+            holes.forEach((loop) =>
+              scanPolygon(loop, scanAxis, c).forEach(([h1, h2]) => {
+                const lo = h1 - hb;
+                const hi = h2 + hb;
+                pieces = pieces.flatMap(([a, b]) => [[a, Math.min(b, lo)], [Math.max(a, hi), b]]).filter(([a, b]) => b - a > 0.05);
+              })
+            );
+            return pieces;
+          };
+          const bCoords = footprint.map(bOf);
+          const positions = distributePositions(Math.min(...bCoords), Math.max(...bCoords), s.floorSpacing, bCoords).filter(
+            (c) => !bCoords.some((v) => Math.abs(v - c) < (ring.b + joist.b) / 2) && !edgeJoists.some((e) => Math.abs(e - c) < hb)
+          );
+          const zJ = elev + ring.h - joist.h / 2;
+          let maxSpan = 0;
+          const placeJoist = (c, grp) => {
+            scanPolygon(footprint, scanAxis, c).forEach(([u1, u2]) => {
+              maxSpan = Math.max(maxSpan, u2 - u1);
+              (holes.length ? holeCut(c, [u1, u2]) : [[u1, u2]]).forEach(([a, b]) => {
+                const a2 = Math.abs(a - u1) < 1e-9 ? a + ring.b / 2 : a;
+                const b2 = Math.abs(b - u2) < 1e-9 ? b - ring.b / 2 : b;
+                const p1 = makePoint(a2, c);
+                const p2 = makePoint(b2, c);
+                addMember("floorJoist", grp, "piso", [p1.x, p1.y, zJ], [p2.x, p2.y, zJ], b2 - a2, lv);
+              });
+            });
+          };
+          positions.forEach((c) => placeJoist(c, group));
+          [...new Set(edgeJoists.map((c) => round(c, 4)))].forEach((c) => placeJoist(c, "Vigas de borde del hueco"));
+          headers.forEach((hd) => {
+            const p1 = makePoint(hd.u, hd.b0);
+            const p2 = makePoint(hd.u, hd.b1);
+            addMember("floorJoist", "Brochales del hueco", "piso", [p1.x, p1.y, zJ], [p2.x, p2.y, zJ], hd.b1 - hd.b0, lv);
+          });
+          if (maxSpan > system.defaults.maxJoistSpan) {
+            warnings.push(`${multi ? `${level.name}: l` : "L"}as viguetas de ${li === 0 ? "piso" : "entrepiso"} salvan ${round(maxSpan, 2)} m: verificá la sección o agregá una viga intermedia con apoyo.`);
+          }
+          // Baranda en los bordes del hueco, salvo la llegada de la escalera y los bordes contra muros
+          const arrivals = arrivalsByLevel[li] ?? [];
+          holes.forEach((loop, hi) =>
+            loop.forEach((p, i) => {
+              const q = loop[(i + 1) % loop.length];
+              const e = { x: q.x - p.x, y: q.y - p.y };
+              const L = Math.hypot(e.x, e.y);
+              if (L < 0.05) return;
+              const ux = { x: e.x / L, y: e.y / L };
+              let free = [[0, L]];
+              arrivals.forEach(([A, B]) => {
+                const offA = Math.abs((A.x - p.x) * ux.y - (A.y - p.y) * ux.x);
+                const offB = Math.abs((B.x - p.x) * ux.y - (B.y - p.y) * ux.x);
+                if (offA > 0.02 || offB > 0.02) return;
+                const ta = (A.x - p.x) * ux.x + (A.y - p.y) * ux.y;
+                const tb = (B.x - p.x) * ux.x + (B.y - p.y) * ux.y;
+                const lo = Math.min(ta, tb);
+                const hi2 = Math.max(ta, tb);
+                free = free.flatMap(([a, b]) => [[a, Math.min(b, lo)], [Math.max(a, hi2), b]]).filter(([a, b]) => b - a > 0.1);
+              });
+              const mid = { x: p.x + e.x / 2, y: p.y + e.y / 2 };
+              const n = { x: ux.y, y: -ux.x };
+              const out = pointInPolygon({ x: mid.x + n.x * 0.02, y: mid.y + n.y * 0.02 }, loop) ? { x: -n.x, y: -n.y } : n;
+              free.forEach(([a, b], k) => {
+                const A = { x: p.x + ux.x * a + out.x * 0.03, y: p.y + ux.y * a + out.y * 0.03 };
+                const B = { x: p.x + ux.x * b + out.x * 0.03, y: p.y + ux.y * b + out.y * 0.03 };
+                if (alongWall(A, B, level.walls)) return;
+                railAlong((role, grp, a3, b3, cut, extra) => addMember(role, grp, "escaleras", a3, b3, cut, extra), {
+                  a: A, b: B, za: floorTop, zb: floorTop, height: guardByLevel[li] ?? 1.0, kind: "baranda", gap: 0.1,
+                  identity: `hueco:${hi}:${i}:${k}`, prof, lv
+                });
+              });
+            })
+          );
+          const holeArea = holes.reduce((sum, loop) => sum + Math.abs(polygonArea(loop)), 0);
+          const deckArea = area - holeArea;
+          if (li === 0) totals.floorDeckArea += deckArea;
+          else totals.mezzanineDeckArea += deckArea;
+          surfaces.push({
+            ...lv, layer: "piso", material: "piso", points: footprint.map((p) => [p.x, p.y, floorTop]),
+            holes: holes.map((loop) => loop.map((p) => [p.x, p.y, floorTop])), area: deckArea,
+            ...(overhangArea > 0.01 ? { overhangArea_m2: overhangArea } : {})
           });
         } else {
-          const closed = exposedItems.filter((_, pi) => !openings.some((f) => f.pi === pi && f.o.kind === "door")).length;
-          if (closed) {
-            warnings.push(`${level.name}: ${closed === exposedItems.length ? "la terraza no tiene" : `${closed} de las ${exposedItems.length} terrazas no tienen`} puerta desde ${upLevel.name}. Agregá una puerta en un muro que dé a la terraza.`);
+          surfaces.push({ ...lv, layer: "piso", material: "platea", points: footprint.map((p) => [p.x, p.y, floorTop + 0.002]), holes: [], area });
+        }
+
+        // ---------- Cielorraso bajo cubierta ----------
+        // Se genera donde hay techo, no debajo de otro piso (su paquete ya incluye placa).
+        // Los tubos apoyan en un marco perimetral propio. No se supone un sistema colgado.
+        const ceilingPolygons = isTop ? [footprint] : differenceRects(footprint, above).map((r) => [
+          { x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }
+        ]);
+        // bajo una terraza las viguetas bajan para dejar el escalón de la puerta: el cielorraso baja con ellas
+        const ceilingDrop = (cb) => {
+          const c = { x: (cb.minX + cb.maxX) / 2, y: (cb.minY + cb.maxY) / 2 };
+          const item = exposedItems.find(({ part, plane }) => plane.kind === "terraza" && part.rects.some((r) => c.x > r.x0 && c.x < r.x1 && c.y > r.y0 && c.y < r.y1));
+          return item ? Math.max(0, zTop - ring.h - (item.plane.joistTop - joist.h)) : 0;
+        };
+        ceilingPolygons.forEach((polygon) => {
+          const cb = bbox(polygon);
+          const axis = cb.maxX - cb.minX <= cb.maxY - cb.minY ? "x" : "y";
+          const scan = axis === "x" ? "y" : "x";
+          const drop = ceilingDrop(cb);
+          const z = zTop - ring.h - ceiling.h / 2 - drop;
+          const cmin = scan === "x" ? cb.minX : cb.minY;
+          const cmax = scan === "x" ? cb.maxX : cb.maxY;
+          distributePositions(cmin + ceiling.b / 2, cmax - ceiling.b / 2, 0.4).forEach((c) => {
+            scanPolygon(polygon, scan, c).forEach(([u1, u2]) => {
+              const a = axis === "x" ? [u1 + ceiling.b, c, z] : [c, u1 + ceiling.b, z];
+              const b = axis === "x" ? [u2 - ceiling.b, c, z] : [c, u2 - ceiling.b, z];
+              addMember("ceilingJoist", "Viguetas de cielorraso", "cielorraso", a, b, u2 - u1 - 2 * ceiling.b, lv);
+            });
+          });
+          polygon.forEach((p, i) => {
+            const q = polygon[(i + 1) % polygon.length];
+            addMember("ceilingTrack", "Marco de cielorraso", "cielorraso", [p.x, p.y, z], [q.x, q.y, z], Math.hypot(q.x - p.x, q.y - p.y), lv);
+          });
+          const a = Math.abs(polygonArea(polygon));
+          const boardZ = zTop - ring.h - ceiling.h - 0.0125 - drop;
+          surfaces.push({ ...lv, layer: "cielorraso", material: "cielorraso", points: polygon.map((p) => [p.x, p.y, boardZ]), holes: [], area: a });
+          totals.ceilingArea += a;
+        });
+
+        // ---------- Techo ----------
+        if (isTop) {
+          const roofOutline = offsetPolygon(footprint, project.roof.overhang);
+          const [umin, umax] = uRange;
+          const umid = (umin + umax) / 2;
+          const bCoordsRoof = [...footprint.map(bOf), ...roofOutline.map(bOf)];
+          const rafterPositions = distributePositions(Math.min(...bCoordsRoof) + rafter.b / 2, Math.max(...bCoordsRoof) - rafter.b / 2, s.roofSpacing, footprint.map(bOf));
+          const rafterPoint = (u, c) => {
+            const p = makePoint(u, c);
+            return [p.x, p.y, roofUnderside(p) + rafter.h / 2];
+          };
+          rafterPositions.forEach((c) => {
+            scanPolygon(roofOutline, scanAxis, c).forEach(([u1, u2]) => {
+              const segments = project.roof.type === "dos_aguas" && u1 < umid && u2 > umid ? [[u1, umid - ridge.b / 2], [umid + ridge.b / 2, u2]] : [[u1, u2]];
+              segments.forEach(([a, b]) => {
+                const A = rafterPoint(a, c);
+                const B = rafterPoint(b, c);
+                addMember("rafter", "Cabios", "techo", A, B, Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]), lv);
+              });
+            });
+          });
+          if (project.roof.type === "dos_aguas") {
+            scanPolygon(roofOutline, spanAxis, umid).forEach(([b1, b2]) => {
+              const p1 = makePoint(umid, b1);
+              const p2 = makePoint(umid, b2);
+              const z = roofUnderside(p1) + rafter.h - ridge.h / 2;
+              addMember("ridge", "Cumbrera", "techo", [p1.x, p1.y, z], [p2.x, p2.y, z], b2 - b1, lv);
+            });
+          }
+          roofOutline.forEach((p, i) => {
+            const q = roofOutline[(i + 1) % roofOutline.length];
+            const du = spanAxis === "x" ? q.x - p.x : q.y - p.y;
+            if (Math.abs(du) > EPS) return;
+            const za = roofUnderside(p) + rafter.h / 2;
+            addMember("roofEdge", "Cenefas", "techo", [p.x, p.y, za], [q.x, q.y, za], Math.hypot(q.x - p.x, q.y - p.y), lv);
+          });
+          const planes =
+            project.roof.type === "dos_aguas"
+              ? [clipPolygonHalfPlane(roofOutline, spanAxis, umid, "below"), clipPolygonHalfPlane(roofOutline, spanAxis, umid, "above")].filter((pl) => pl.length >= 3)
+              : [roofOutline];
+          planes.forEach((plane, planeIndex) => {
+            const pts = plane.map((p) => [p.x, p.y, roofUnderside(p) + rafter.h]);
+            const a = area3D(pts);
+            totals.roofArea += a;
+            const covered = project.roof.type === "dos_aguas"
+              ? clipPolygonHalfPlane(footprint, spanAxis, umid, planeIndex === 0 ? "below" : "above")
+              : footprint;
+            surfaces.push({ ...lv, layer: "cubierta", material: "cubierta", points: pts, holes: [], area: a, coveredArea_m2: Math.abs(polygonArea(covered)),
+              ...(li < project.levels.length - 1 ? { roofType: project.roof.type, slope_percent: project.roof.slope } : {}) });
+          });
+          totals.roofPlanArea += Math.abs(polygonArea(roofOutline));
+          totals.roofCoveredArea += area;
+        } else {
+          // parte de este nivel que queda descubierta por el nivel de arriba: techo a un agua o terraza
+          if (!isOrthogonal(footprint) || !isOrthogonal(above)) warnings.push(`${level.name}: la cubierta descubierta se aproxima porque hay muros no ortogonales.`);
+          const upLevel = project.levels[li + 1];
+          const up = levelZ[li + 1];
+          const ctx = {
+            add: addMember,
+            addRail: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "balcones", a3, b3, cut, extra),
+            prof, s, lv, surfaces, totals, cfg: exposedCfg, above, footprint, ring, placed: new Set()
+          };
+          const fmt = (v) => String(round(v, 2)).replace(".", ",");
+          exposedItems.forEach(({ part, plane }, pi) => {
+            if (plane.kind === "terraza") {
+              const r = buildTerrace(part, pi, plane, ctx);
+              if (r.maxSpan > system.defaults.maxJoistSpan) warnings.push(`${level.name}: las viguetas de la terraza salvan ${fmt(r.maxSpan)} m: verificá la sección o agregá una viga con apoyo.`);
+            } else {
+              buildExposedRoof(part, pi, plane, ctx);
+            }
+            if (part.drainsToUpper) warnings.push(`${level.name}: una parte descubierta desagua contra ${upLevel.name}; lleva canaleta y embudo en ese encuentro.`);
+          });
+          if (exposedItems.some(({ part }) => part.split)) {
+            warnings.push(`${level.name}: la parte descubierta rodea a ${upLevel.name}; se resolvió en paños que desaguan cada uno hacia afuera. Revisá los encuentros entre paños.`);
+          }
+          const minSlope = MIN_ROOF_SLOPE[s.roofCladding];
+          if (exposedCfg.kind === "techo" && minSlope && exposedCfg.slope < minSlope) {
+            warnings.push(`${level.name}: el techo de la parte descubierta tiene ${fmt(exposedCfg.slope)} % y la cubierta elegida pide al menos ${minSlope} % (dato de fabricantes, confirmar ficha).`);
+          }
+          const openings = exposedItems.flatMap(({ part, plane }, pi) => openingsOnUpperEdges(part, upLevel.walls).map((f) => ({ ...f, plane, pi })));
+          if (exposedCfg.kind === "techo") {
+            openings.forEach(({ o, p1, p2, plane }) => {
+              if (o.kind === "door") {
+                warnings.push(`${upLevel.name}: una puerta da al techo de ${level.name}. Si se sale por ahí, elegí «Terraza transitable» para la parte descubierta.`);
+                return;
+              }
+              const roofTop = Math.max(plane.under(p1), plane.under(p2)) + rafter.h + FLASHING_UPSTAND;
+              if (roofTop > up.floorTop + o.sill - 1e-6) {
+                warnings.push(`${upLevel.name}: el techo de ${level.name} con su babeta llega a ${fmt(roofTop - up.floorTop)} m sobre el piso y tapa una ventana (antepecho ${fmt(o.sill)} m). Bajá la pendiente o subí el antepecho.`);
+              }
+            });
+          } else {
+            const closed = exposedItems.filter((_, pi) => !openings.some((f) => f.pi === pi && f.o.kind === "door")).length;
+            if (closed) {
+              warnings.push(`${level.name}: ${closed === exposedItems.length ? "la terraza no tiene" : `${closed} de las ${exposedItems.length} terrazas no tienen`} puerta desde ${upLevel.name}. Agregá una puerta en un muro que dé a la terraza.`);
+            }
           }
         }
       }
-    }
 
-    // ---------- Balcones colgados de los muros exteriores de este nivel ----------
-    const balconyStats = [];
-    (level.balconies ?? []).forEach((bal, bi) => {
-      const st = buildBalcony(bal, bi, {
-        add: addMember,
-        addRail: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "balcones", a3, b3, cut, extra),
-        prof, lv, surfaces, solids, totals, footprint, floorTop, walls: level.walls, ring, placed: new Set(),
-        lowerFootprints: footprints.slice(0, li), lowerName: li > 0 ? project.levels[li - 1].name : "",
-        warn: (text) => warnings.push(`Balcón de ${level.name}: ${text}`)
+      // ---------- Balcones colgados de los muros exteriores de este nivel ----------
+      const balconyStats = [];
+      (level.balconies ?? []).forEach((bal, bi) => {
+        const st = buildBalcony(bal, bi, {
+          add: addMember,
+          addRail: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "balcones", a3, b3, cut, extra),
+          prof, lv, surfaces, solids, totals, footprint, floorTop, walls: level.walls, ring, placed: new Set(),
+          lowerFootprints: footprints.slice(0, li), lowerName: li > 0 ? project.levels[li - 1].name : "",
+          warn: (text) => warnings.push(`Balcón de ${level.name}: ${text}`)
+        });
+        if (!st) {
+          warnings.push(`${level.name}: un balcón no tiene muro exterior con contorno cerrado y no se calcula.`);
+          return;
+        }
+        totals.balconyGussets += st.gussets;
+        totals.balconyPosts += st.posts;
+        balconyStats.push(st);
       });
-      if (!st) {
-        warnings.push(`${level.name}: un balcón no tiene muro exterior con contorno cerrado y no se calcula.`);
-        return;
-      }
-      totals.balconyGussets += st.gussets;
-      totals.balconyPosts += st.posts;
-      balconyStats.push(st);
-    });
 
-    totals.columns += columnNodes.size;
-    levelsOut.push({
-      index: li, name: level.name, elev, floorTop, zTop, footprint, spanAxis, columns: [...columnNodes.values()], holes: holesByLevel[li] ?? [],
-      ...(exposedItems.length ? {
-        exposed: exposedItems.map(({ part, plane }) => ({ outline: part.outline, d: part.d, area: part.area, run: part.run, kind: plane.kind, slope: plane.slope, split: part.split }))
-      } : {}),
-      ...(balconyStats.length ? { balconies: balconyStats } : {})
+      columnNodes.forEach((p, key) => allColumns.set(key, p));
+      regionOutputs.push({
+        index: li, name: level.name, elev, floorTop, zTop, footprint, spanAxis, columns: [...columnNodes.values()], holes: regionHoles,
+        ...(exposedItems.length ? {
+          exposed: exposedItems.map(({ part, plane }) => ({ outline: part.outline, d: part.d, area: part.area, run: part.run, kind: plane.kind, slope: plane.slope, split: part.split }))
+        } : {}),
+        ...(balconyStats.length ? { balconies: balconyStats } : {})
+      });
     });
-    lowerColumns = columnNodes;
-    base = zTop;
+    const first = regionOutputs[0];
+    totals.columns += allColumns.size;
+    levelsOut.push(regions.length === 1 ? first : { ...first,
+      footprints: regions.map(r => r.polygon).filter(Boolean), regions: regionOutputs, columns: [...allColumns.values()], holes: holesByLevel[li] ?? [],
+      exposed: regionOutputs.flatMap(r => r.exposed ?? []), balconies: regionOutputs.flatMap(r => r.balconies ?? []) });
+    lowerColumns = allColumns;
+    base = first.zTop;
   });
 
   // ---------- Fundación (bajo la planta baja) ----------
   const ground = levelsOut[0];
   const footprint = ground?.footprint;
+  const groundFootprints = ground?.footprints ?? (footprint ? [footprint] : []);
   if (footprint) {
     const elev = ground.elev;
     const groundCols = ground.columns;
@@ -910,26 +950,26 @@ export function generate(project) {
     if (f.type === "vigas_pilotines") {
       const w = f.beamWidth;
       const h = f.beamHeight;
-      footprint.forEach((p, i) => {
-        const q = footprint[(i + 1) % footprint.length];
+      groundFootprints.forEach(loop => loop.forEach((p, i) => {
+        const q = loop[(i + 1) % loop.length];
         solids.push({ level: 0, layer: "fundacion", shape: "beam", a: [p.x, p.y, elev - h / 2], b: [q.x, q.y, elev - h / 2], w, h, material: "hormigon" });
-      });
+      }));
       const per = totals.perimeter;
       totals.concrete += per * w * h;
       totals.excavation += per * w * Math.max(h - elev, 0);
       totals.formwork += 2 * per * Math.max(elev, 0);
       totals.rebar[10] += per * 4;
-      totals.rebar[6] += (Math.ceil(per / 0.2) + footprint.length) * (2 * (w + h) - 0.1);
+      totals.rebar[6] += (Math.ceil(per / 0.2) + groundFootprints.reduce((sum, loop) => sum + loop.length, 0)) * (2 * (w + h) - 0.1);
       const piles = new Map();
-      footprint.forEach((p, i) => {
-        const q = footprint[(i + 1) % footprint.length];
+      groundFootprints.forEach(loop => loop.forEach((p, i) => {
+        const q = loop[(i + 1) % loop.length];
         const L = Math.hypot(q.x - p.x, q.y - p.y);
         const n = Math.max(1, Math.ceil(L / f.pileSpacing - 1e-9));
         for (let k = 0; k < n; k += 1) {
           const pt = { x: p.x + ((q.x - p.x) * k) / n, y: p.y + ((q.y - p.y) * k) / n };
           piles.set(pointKey(pt), pt);
         }
-      });
+      }));
       const r = f.pileDiameter / 2;
       piles.forEach((pt) => {
         solids.push({ level: 0, layer: "fundacion", shape: "cylinder", center: [pt.x, pt.y, elev - h - f.pileDepth / 2], r, h: f.pileDepth, material: "hormigon" });
@@ -941,28 +981,30 @@ export function generate(project) {
       totals.piles = piles.size;
     }
     if (f.type === "platea") {
-      const slabPoly = offsetPolygon(footprint, f.margin);
-      const slabArea = Math.abs(polygonArea(slabPoly));
-      const slabPer = polygonPerimeter(slabPoly);
-      const t = f.slabThickness;
-      solids.push({ level: 0, layer: "fundacion", shape: "prism", polygon: slabPoly, z0: elev - t, z1: elev, material: "hormigon" });
-      const edgeH = Math.max(f.edgeBeamHeight - t, 0);
-      const edgeLine = offsetPolygon(slabPoly, -f.edgeBeamWidth / 2);
-      edgeLine.forEach((p, i) => {
-        const q = edgeLine[(i + 1) % edgeLine.length];
-        solids.push({ level: 0, layer: "fundacion", shape: "beam", a: [p.x, p.y, elev - t - edgeH / 2], b: [q.x, q.y, elev - t - edgeH / 2], w: f.edgeBeamWidth, h: edgeH, material: "hormigon" });
+      groundFootprints.forEach(footprint => {
+        const slabPoly = offsetPolygon(footprint, f.margin);
+        const slabArea = Math.abs(polygonArea(slabPoly));
+        const slabPer = polygonPerimeter(slabPoly);
+        const t = f.slabThickness;
+        solids.push({ level: 0, layer: "fundacion", shape: "prism", polygon: slabPoly, z0: elev - t, z1: elev, material: "hormigon" });
+        const edgeH = Math.max(f.edgeBeamHeight - t, 0);
+        const edgeLine = offsetPolygon(slabPoly, -f.edgeBeamWidth / 2);
+        edgeLine.forEach((p, i) => {
+          const q = edgeLine[(i + 1) % edgeLine.length];
+          solids.push({ level: 0, layer: "fundacion", shape: "beam", a: [p.x, p.y, elev - t - edgeH / 2], b: [q.x, q.y, elev - t - edgeH / 2], w: f.edgeBeamWidth, h: edgeH, material: "hormigon" });
+        });
+        const edgePer = polygonPerimeter(edgeLine);
+        totals.concrete += slabArea * t + edgePer * f.edgeBeamWidth * edgeH;
+        totals.excavation += edgePer * f.edgeBeamWidth * Math.max(f.edgeBeamHeight - elev, 0);
+        totals.formwork += slabPer * (elev + 0.05);
+        totals.film += slabArea * 1.1 + slabPer * f.edgeBeamHeight;
+        totals.gravel += slabArea * 0.1;
+        totals.meshPanels += Math.ceil((slabArea * 1.15) / 14.4);
+        totals.rebar[10] += edgePer * 4;
+        totals.rebar[6] += (Math.ceil(edgePer / 0.2) + edgeLine.length) * (2 * (f.edgeBeamWidth + f.edgeBeamHeight) - 0.1);
+        totals.slabArea = (totals.slabArea ?? 0) + slabArea;
+        totals.chemicalAnchors = Math.ceil(totals.perimeter / 1.2);
       });
-      const edgePer = polygonPerimeter(edgeLine);
-      totals.concrete += slabArea * t + edgePer * f.edgeBeamWidth * edgeH;
-      totals.excavation += edgePer * f.edgeBeamWidth * Math.max(f.edgeBeamHeight - elev, 0);
-      totals.formwork += slabPer * (elev + 0.05);
-      totals.film += slabArea * 1.1 + slabPer * f.edgeBeamHeight;
-      totals.gravel += slabArea * 0.1;
-      totals.meshPanels = Math.ceil((slabArea * 1.15) / 14.4);
-      totals.rebar[10] += edgePer * 4;
-      totals.rebar[6] += (Math.ceil(edgePer / 0.2) + edgeLine.length) * (2 * (f.edgeBeamWidth + f.edgeBeamHeight) - 0.1);
-      totals.slabArea = slabArea;
-      totals.chemicalAnchors = Math.ceil(totals.perimeter / 1.2);
     }
     totals.anchorPlates = groundCols.length;
     totals.anchorBolts = groundCols.length * 4;
@@ -981,10 +1023,15 @@ export function generate(project) {
       : sf.material === "cubierta" ? (sf.access === "terraza" ? "Terrazas" : "Techo") : sf.material === "cielorraso" ? "Cielorraso" : sf.material === "escalon" ? "Escaleras"
         : sf.material === "balcon" ? "Balcones" : sf.material === "volado" ? "Volados" : sf.layer === "aberturas" ? "Aberturas" : "Muros";
     sf.layers = surfaceLayers(project, sf);
+    if (sf.region !== undefined) {
+      const poly = levelsOut[sf.level].regions[sf.region].footprint;
+      sf.key += `:contour:${poly ? poly.map(p => `${round(p.x, 6)},${round(p.y, 6)}`).sort().join(";") : "open"}`;
+    }
   });
   solids.forEach((solid) => {
     const point = solid.a ?? solid.center ?? [solid.polygon?.[0]?.x, solid.polygon?.[0]?.y];
     solid.key = `L${project.levels[solid.level].id}:foundation:${solid.shape}:${point.map((v) => round(v, 6)).join(",")}`;
+    if (ground?.footprints?.length > 1) solid.key += `:extent:${solid.b?.join(",") ?? solid.polygon?.map(p => `${round(p.x, 6)},${round(p.y, 6)}`).sort().join(";") ?? `${solid.r},${solid.h}`}`;
   });
 
   return {
@@ -997,6 +1044,7 @@ export function generate(project) {
     wallSummaries,
     totals,
     stairs: stairLayouts,
-    warnings: [...new Set(warnings)]
+    warnings: [...new Set(warnings)],
+    ...(contoursChanged ? { effectiveWalls: project.levels.map(level => level.walls), incompleteContours: contourInfo.some(info => !info.closed) } : {})
   };
 }
