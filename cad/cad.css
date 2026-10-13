@@ -188,6 +188,16 @@ button, input, select { font: inherit; color: inherit; }
 .plan .wall-ghost { stroke: rgba(22, 49, 38, 0.28); stroke-width: 2; stroke-dasharray: 6 5; fill: none; }
 .plan .door-hinge { fill: #214034; }
 .plan .door-hinge.is-selected { fill: var(--accent-2); }
+.plan .stair { fill: rgba(255, 255, 255, 0.75); stroke: #111; stroke-width: 1.5; }
+.plan .stair.is-selected { stroke-width: 3; }
+.plan .stair--preview { fill: rgba(0, 0, 0, 0.04); stroke-dasharray: 5 4; }
+.plan .stair-tread { fill: none; stroke: #444; stroke-width: 0.8; }
+.plan .stair-landing { fill: rgba(0, 0, 0, 0.05); stroke: #444; stroke-width: 0.8; }
+.plan .stair-path { fill: none; stroke: #111; stroke-width: 1.2; }
+.plan .stair-arrow, .plan .stair-start { fill: #111; }
+.plan .stair-label { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; fill: #111; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: rgba(255, 255, 255, 0.9); stroke-width: 3px; }
+.plan .stair-hole { fill: rgba(0, 0, 0, 0.06); stroke: #111; stroke-width: 1.2; stroke-dasharray: 7 4; }
+.plan[data-tool="stair"] { cursor: crosshair; }
 .plan .opening-swing { fill: none; stroke: #214034; stroke-width: 1; stroke-dasharray: 3 3; }
 .plan .column { fill: #fff; stroke: #214034; stroke-width: 1.5; }
 .plan .dim { font-size: 11px; fill: var(--muted); text-anchor: middle; dominant-baseline: middle; font-variant-numeric: tabular-nums; }
@@ -443,3 +453,13 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
 .eng-wind-view .eng-note { grid-column: 1 / -1; overflow-wrap: anywhere; }
 .eng-table td small, .eng-table td code { overflow-wrap: anywhere; }
 @media (max-width: 600px) { .eng-wind-view { grid-template-columns: minmax(0, 1fr); padding: 12px; } }
+
+/* ---------- escaleras ---------- */
+.stair-sum { margin: 0 0 10px; font-size: 0.86rem; line-height: 1.5; }
+.warn-inline { margin: 0 0 10px; font-size: 0.84rem; border-left: 3px solid #111; padding: 6px 8px; background: #f1f1f1; }
+.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 0.82rem; }
+.checks li { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.checks li span { font-weight: 700; width: 1em; }
+.checks li small { color: var(--muted); flex-basis: 100%; padding-left: 1.4em; }
+.checks li.bad { font-weight: 600; }
+.checks li.bad span { color: #b00020; }

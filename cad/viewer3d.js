@@ -9,7 +9,8 @@ export const LAYERS = [
   { id: "cerramientos", label: "Cerramientos" },
   { id: "cubierta", label: "Cubierta" },
   { id: "cielorraso", label: "Cielorraso" },
-  { id: "aberturas", label: "Aberturas" }
+  { id: "aberturas", label: "Aberturas" },
+  { id: "escaleras", label: "Escaleras" }
 ];
 
 const ROLE_COLORS = {
@@ -23,7 +24,13 @@ const ROLE_COLORS = {
   roofEdge: 0x7d3d1f,
   ridge: 0x6e2f16,
   ceilingJoist: 0x555555,
-  ceilingTrack: 0x333333
+  ceilingTrack: 0x333333,
+  stairStringer: 0x2b2b2b,
+  landingFrame: 0x3d3d3d,
+  landingPost: 0x2b2b2b,
+  handrail: 0x111111,
+  railPost: 0x333333,
+  baluster: 0x555555
 };
 
 const SURFACE_STYLES = {
@@ -34,7 +41,8 @@ const SURFACE_STYLES = {
   piso: { color: 0xc8a676, opacity: 1 },
   platea: { color: 0xb9b4a8, opacity: 1 },
   vidrio: { color: 0x9cc7e0, opacity: 0.45 },
-  puerta: { color: 0x8b5a3c, opacity: 1 }
+  puerta: { color: 0x8b5a3c, opacity: 1 },
+  escalon: { color: 0x9a9a9a, opacity: 1 }
 };
 
 const toV = ([x, y, z]) => new THREE.Vector3(x, z, y);
@@ -234,7 +242,7 @@ export function createViewer(container) {
       const mesh = orientedBox(m.a, m.b, m.w, m.h, m.nrm);
       mesh.material = getMaterial(`r-${m.role}`, () => new THREE.MeshLambertMaterial({ color: ROLE_COLORS[m.role] ?? 0x777777 }));
       mesh.userData = { member: m, level: m.level ?? 0 };
-      (m.layer === "cielorraso" ? layerGroups.cielorraso : layerGroups.estructura).add(mesh);
+      (m.layer === "cielorraso" ? layerGroups.cielorraso : m.layer === "escaleras" ? layerGroups.escaleras : layerGroups.estructura).add(mesh);
       memberMeshes.push(mesh);
     });
     gen.surfaces.forEach((surface) => {

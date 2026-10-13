@@ -1,6 +1,7 @@
 // Editor de planta 2D sobre SVG. Coordenadas del modelo en metros; Y crece hacia abajo en pantalla.
 import { dist, dot, normalize, pointInPolygon, pointKey, sub, wallDir, wallLength } from "./geometry.js";
-import { defaultSwing, doorLeaf, newId } from "./model.js";
+import { STAIR_DEFAULTS, defaultSwing, doorLeaf, newId } from "./model.js";
+import { dirVector, layoutStair } from "./stairs.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const WALL_THICKNESS = 0.14;
@@ -35,6 +36,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   const pointers = new Map();
   let pinch = null;
   let level = 0;
+  let stairStart = null; // primer toque de la herramienta Escalera
 
   const model = () => draft ?? store.project;
   const lvl = (p) => p.levels[Math.min(level, p.levels.length - 1)];
@@ -120,6 +122,51 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     return { p, kind: "grid" };
   }
 
+  // ---------- Escaleras ----------
+  /** Cotas para resolver una escalera que arranca en este nivel; null si no hay nivel encima. */
+  function stairEnv(li = level) {
+    const lo = gen?.levels?.[li];
+    const up = gen?.levels?.[li + 1];
+    if (!lo || !up) return null;
+    return { f0: lo.floorTop, H: up.floorTop - lo.floorTop, zUnder: up.elev - 0.013 };
+  }
+  const layoutFor = (stair) => {
+    const env = stairEnv();
+    return env ? layoutStair(stair, env) : null;
+  };
+  /** Si la escalera queda a menos de 30 cm de un muro paralelo, la pega a su cara. */
+  function fitStairToWalls(st, walls) {
+    const u = dirVector(st.dir);
+    const r = { x: -u.y, y: u.x };
+    let best = null;
+    walls.forEach((w) => {
+      const d = normalize(sub(w.b, w.a));
+      if (Math.abs(d.x * u.y - d.y * u.x) > 1e-3) return; // no es paralelo
+      const tw = (w.a.x - st.x) * r.x + (w.a.y - st.y) * r.y;
+      const along = [w.a, w.b].map((q) => (q.x - st.x) * u.x + (q.y - st.y) * u.y);
+      if (Math.max(...along) < 0.3 || Math.min(...along) > 1.5) return; // no acompaña al primer tramo
+      const gapToFace = Math.abs(tw) - 0.07 - st.width / 2;
+      if (gapToFace > -0.3 && gapToFace < 0.3 && (!best || Math.abs(gapToFace) < Math.abs(best.gap))) best = { gap: gapToFace, sign: Math.sign(tw) };
+    });
+    if (!best) return st;
+    const shift = best.sign * best.gap;
+    return { ...st, x: Math.round((st.x + r.x * shift) * 1000) / 1000, y: Math.round((st.y + r.y * shift) * 1000) / 1000 };
+  }
+  const dirFrom = (a, b) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? 0 : 180;
+    return dy >= 0 ? 90 : 270;
+  };
+  function stairAt(raw) {
+    const p = model();
+    for (const st of lvl(p).stairs ?? []) {
+      const lay = layoutFor(st);
+      if (lay?.rects.some((r) => raw.x >= r.x0 && raw.x <= r.x1 && raw.y >= r.y0 && raw.y <= r.y1)) return st;
+    }
+    return null;
+  }
+
   // ---------- Operaciones sobre el modelo ----------
   function splitExteriorAt(project, point) {
     const wall = lvl(project).walls.find((w) => {
@@ -198,6 +245,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     const sel = selection;
     store.update((p) => {
       if (sel.type === "wall") lvl(p).walls = lvl(p).walls.filter((w) => w.id !== sel.wallId);
+      else if (sel.type === "stair") lvl(p).stairs = (lvl(p).stairs ?? []).filter((st) => st.id !== sel.stairId);
       else {
         const w = lvl(p).walls.find((x) => x.id === sel.wallId);
         if (w) w.openings = w.openings.filter((o) => o.id !== sel.openingId);
@@ -234,7 +282,9 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       const { d } = projectOnSegment(raw, w.a, w.b);
       if (d < Math.max(tol(10), WALL_THICKNESS) && (!best || d < best.d)) best = { d, wallId: w.id };
     });
-    return best ? { type: "wall", wallId: best.wallId } : null;
+    if (best) return { type: "wall", wallId: best.wallId };
+    const st = stairAt(raw);
+    return st ? { type: "stair", stairId: st.id } : null;
   }
 
   function vertexAt(raw) {
@@ -259,6 +309,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     tool = next;
     chain = null;
     rectStart = null;
+    stairStart = null;
     typed = "";
     svg.dataset.tool = tool;
     render();
@@ -285,11 +336,16 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       exterior: "Tocá para ir marcando muros exteriores. Escribí un largo y Enter para medidas exactas. Doble toque o Esc para terminar.",
       interior: "Tocá para marcar tabiques interiores. Se enganchan a los muros existentes.",
       door: "Tocá sobre un muro para agregar una puerta.",
-      window: "Tocá sobre un muro para agregar una ventana."
+      window: "Tocá sobre un muro para agregar una ventana.",
+      stair: stairEnv()
+        ? "Tocá donde arranca la escalera y después hacia dónde sube. Se calcula sola según el reglamento."
+        : "Para poner una escalera hace falta un nivel encima: tocá + en la barra de niveles."
     };
     let text = hints[tool] ?? "";
     if (chain && cursor) {
       text = `Largo: ${fmt(dist(chain.last, cursor.p))} m${typed ? ` · escribiendo ${typed} m` : ""} · Enter confirma · Esc termina`;
+    } else if (stairStart && cursor) {
+      text = "Tocá hacia donde sube la escalera para ubicarla. Esc cancela.";
     } else if (rectStart && cursor) {
       text = `Rectángulo ${fmt(Math.abs(cursor.p.x - rectStart.x))} × ${fmt(Math.abs(cursor.p.y - rectStart.y))} m`;
     }
@@ -339,12 +395,40 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
         drag = { kind: "vertex", key: vtx.key, origin: vtx.p, moved: false };
         return;
       }
+      if (hit?.type === "stair") {
+        const st = (lvl(store.project).stairs ?? []).find((x) => x.id === hit.stairId);
+        drag = { kind: "stair", stairId: st.id, grab: { x: raw.x - st.x, y: raw.y - st.y }, moved: false };
+        setSelection(hit);
+        return;
+      }
       setSelection(hit);
       if (!hit) drag = { kind: "pan", sx: evt.clientX, sy: evt.clientY, ox: view.ox, oy: view.oy };
       return;
     }
     if (tool === "door" || tool === "window") {
       addOpening(tool, raw);
+      return;
+    }
+    if (tool === "stair") {
+      if (!stairEnv()) {
+        flash("Para poner una escalera hace falta un nivel encima. Tocá + en la barra de niveles.");
+        return;
+      }
+      const p = { x: Math.round(raw.x / snapStep) * snapStep, y: Math.round(raw.y / snapStep) * snapStep };
+      if (!stairStart) {
+        stairStart = p;
+        render();
+        return;
+      }
+      const id = newId("s");
+      const st = fitStairToWalls({ id, ...STAIR_DEFAULTS, x: stairStart.x, y: stairStart.y, dir: dirFrom(stairStart, raw) }, lvl(store.project).walls);
+      stairStart = null;
+      store.update((pr) => {
+        const L = lvl(pr);
+        L.stairs = [...(L.stairs ?? []), st];
+      });
+      setTool("select");
+      setSelection({ type: "stair", stairId: id });
       return;
     }
     const snapped = snapPoint(raw, { anchor: chain?.last ?? null, freeAxis: evt.shiftKey });
@@ -400,6 +484,16 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       render();
       return;
     }
+    if (current.kind === "stair" && draft) {
+      const finalProject = draft;
+      draft = null;
+      if (current.moved) {
+        const L = lvl(finalProject);
+        L.stairs = L.stairs.map((st) => (st.id === current.stairId ? fitStairToWalls(st, L.walls) : st));
+        store.replace(finalProject, "drag");
+      } else render();
+      return;
+    }
     if ((current.kind === "vertex" || current.kind === "opening") && draft) {
       const finalProject = draft;
       draft = null;
@@ -443,6 +537,18 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       render();
       return;
     }
+    if (drag?.kind === "stair") {
+      const next = JSON.parse(JSON.stringify(store.project));
+      const st = (lvl(next).stairs ?? []).find((x) => x.id === drag.stairId);
+      const nx = Math.round((raw.x - drag.grab.x) / snapStep) * snapStep;
+      const ny = Math.round((raw.y - drag.grab.y) / snapStep) * snapStep;
+      drag.moved = drag.moved || Math.abs(nx - st.x) > 1e-6 || Math.abs(ny - st.y) > 1e-6;
+      st.x = nx;
+      st.y = ny;
+      draft = next;
+      render();
+      return;
+    }
     if (drag?.kind === "opening") {
       const next = JSON.parse(JSON.stringify(store.project));
       const w = lvl(next).walls.find((x) => x.id === drag.wallId);
@@ -458,6 +564,9 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     }
     if (tool === "exterior" || tool === "interior" || tool === "rect") {
       cursor = snapPoint(raw, { anchor: chain?.last ?? null, freeAxis: evt.shiftKey });
+      render();
+    } else if (tool === "stair") {
+      cursor = { p: raw, kind: "grid" };
       render();
     } else if (cursor) {
       cursor = null;
@@ -486,9 +595,10 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     const target = evt.target;
     if (target && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA")) return;
     if (evt.key === "Escape") {
-      if (chain || rectStart || typed) {
+      if (chain || rectStart || typed || stairStart) {
         chain = null;
         rectStart = null;
+        stairStart = null;
         typed = "";
         render();
       } else {
@@ -647,6 +757,63 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
         const s = Math.max(colSize * view.scale, 5);
         parts.push(`<rect x="${c.x - s / 2}" y="${c.y - s / 2}" width="${s}" height="${s}" class="column"/>`);
       });
+    }
+
+    // huecos de escalera en este nivel (vienen del nivel de abajo)
+    (gen?.levels?.[level]?.holes ?? []).forEach((loop) => {
+      if (draft) return;
+      const pts = loop.map((p) => toScreen(p));
+      parts.push(`<polygon class="stair-hole" points="${pts.map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
+      const xs = pts.map((q) => q.x);
+      const ys = pts.map((q) => q.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      parts.push(`<text x="${cx}" y="${cy}" class="stair-label">HUECO · BAJA</text>`);
+    });
+
+    // escaleras que arrancan en este nivel
+    const drawStair = (st, preview = false) => {
+      const lay = layoutFor(st);
+      if (!lay || !lay.solution.ok) return;
+      const selected = selection?.type === "stair" && selection.stairId === st.id;
+      const cls = `stair${selected ? " is-selected" : ""}${preview ? " stair--preview" : ""}`;
+      lay.outline.forEach((loop) => {
+        parts.push(`<polygon class="${cls}" points="${loop.map((p) => { const q = toScreen(p); return `${q.x},${q.y}`; }).join(" ")}"/>`);
+      });
+      lay.treads.forEach((t) => {
+        const q = t.poly.map(toScreen);
+        parts.push(`<polygon class="stair-tread" points="${q.map((v) => `${v.x},${v.y}`).join(" ")}"/>`);
+      });
+      lay.landings.forEach((l) => {
+        const q = l.poly.map(toScreen);
+        parts.push(`<polygon class="stair-landing" points="${q.map((v) => `${v.x},${v.y}`).join(" ")}"/>`);
+      });
+      // línea de huella con flecha hacia donde sube
+      const path = [];
+      lay.flights.forEach((f, i) => {
+        if (i === 0) path.push(f.start);
+        path.push(f.end);
+        const next = lay.flights[i + 1];
+        if (next) path.push(next.start);
+      });
+      const scr = path.map(toScreen);
+      parts.push(`<polyline class="stair-path" points="${scr.map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
+      const tip = scr[scr.length - 1];
+      const prev = scr[scr.length - 2] ?? scr[0];
+      const ang = Math.atan2(tip.y - prev.y, tip.x - prev.x);
+      const ah = 8;
+      parts.push(`<path class="stair-arrow" d="M ${tip.x} ${tip.y} L ${tip.x - ah * Math.cos(ang - 0.45)} ${tip.y - ah * Math.sin(ang - 0.45)} L ${tip.x - ah * Math.cos(ang + 0.45)} ${tip.y - ah * Math.sin(ang + 0.45)} Z"/>`);
+      const s0 = scr[0];
+      parts.push(`<circle class="stair-start" cx="${s0.x}" cy="${s0.y}" r="3.5"/>`);
+      if (view.scale > 22) {
+        const f0 = lay.flights[0];
+        const mid = toScreen({ x: (f0.start.x + f0.end.x) / 2, y: (f0.start.y + f0.end.y) / 2 });
+        parts.push(`<text x="${mid.x}" y="${mid.y - 6}" class="stair-label">SUBE · ${lay.solution.n} × ${fmt(lay.solution.a)} m</text>`);
+      }
+    };
+    (lvl(project).stairs ?? []).forEach((st) => drawStair(st));
+    if (tool === "stair" && stairStart && cursor) {
+      drawStair({ id: "preview", ...STAIR_DEFAULTS, x: stairStart.x, y: stairStart.y, dir: dirFrom(stairStart, cursor.p) }, true);
     }
 
     // cotas

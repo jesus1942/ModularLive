@@ -15,7 +15,9 @@ export const PROFILES = {
   tubo_100x50x3_2: { label: "Tubo rectangular AC 100×50×3.2 mm", shape: "rhs", b: 0.05, h: 0.1, t: 0.0032, stock: 6 },
   tubo_100x50x2: { label: "Tubo rectangular AC 100×50×2 mm", shape: "rhs", b: 0.05, h: 0.1, t: 0.002, stock: 6 },
   tubo_120x60x3_2: { label: "Tubo rectangular AC 120×60×3.2 mm", shape: "rhs", b: 0.06, h: 0.12, t: 0.0032, stock: 6 },
-  perfil_c_100x50x2: { label: "Perfil C AC 100×50×2 mm", shape: "c", b: 0.05, h: 0.1, t: 0.002, stock: 6 }
+  perfil_c_100x50x2: { label: "Perfil C AC 100×50×2 mm", shape: "c", b: 0.05, h: 0.1, t: 0.002, stock: 6 },
+  tubo_40x40x1_6: { label: "Tubo estructural AC 40×40×1.6 mm", shape: "rhs", b: 0.04, h: 0.04, t: 0.0016, stock: 6 },
+  barra_12: { label: "Hierro redondo liso Ø12 mm", shape: "round", b: 0.012, h: 0.012, t: 0.006, stock: 6 }
 };
 
 /** Peso aproximado por metro (sin radios de plegado). */
@@ -23,6 +25,7 @@ export function profileKgPerMeter(profile, density_kg_m3 = STEEL_DENSITY) {
   const { b, h, t, shape } = profile;
   let area;
   if (shape === "rhs") area = 2 * (b + h) * t - 4 * t * t;
+  else if (shape === "round") area = Math.PI * (b / 2) ** 2;
   else if (shape === "c") area = (h + 2 * b + 0.03) * t; // alma + alas + labios 15 mm
   else area = (h + 2 * b) * t;
   return area * density_kg_m3;
@@ -30,6 +33,7 @@ export function profileKgPerMeter(profile, density_kg_m3 = STEEL_DENSITY) {
 
 /** Superficie exterior a pintar por metro lineal. */
 export function profilePaintAreaPerMeter(profile) {
+  if (profile.shape === "round") return Math.PI * profile.b;
   return 2 * (profile.b + profile.h);
 }
 
@@ -88,7 +92,13 @@ export const SYSTEMS = {
       roofEdge: "tubo_100x50x3_2",
       ridge: "tubo_120x60x3_2",
       ceilingJoist: "tubo_40x20x1_6",
-      ceilingTrack: "tubo_40x20x1_6"
+      ceilingTrack: "tubo_40x20x1_6",
+      stairStringer: "tubo_100x50x3_2",
+      landingFrame: "tubo_100x50x2",
+      landingPost: "tubo_80x80x3_2",
+      handrail: "tubo_40x40x1_6",
+      railPost: "tubo_40x40x1_6",
+      baluster: "barra_12"
     },
     mainFrameOptions: ["tubo_100x100x3_2", "tubo_80x80x3_2"],
     defaults: {

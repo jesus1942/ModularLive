@@ -27,7 +27,9 @@ export const MATERIALS = {
   barrera_viento: { label: "Barrera de viento", basis: "area", value: 0.5, unit: "kg/m²", source: "Encargo, §5.1: aproximación; confirmar membrana instalada", url: BRIEF },
   membrana_techo: { label: "Membrana bajo cubierta", basis: "area", value: 0.5, unit: "kg/m²", source: "Encargo, §5.1: aproximación; confirmar membrana instalada", url: BRIEF },
   vidrio: { label: "Vidrio de ventanas", basis: "area", value: 15, unit: "kg/m²", source: "SUPUESTO vidrio simple de 6 mm a 2.500 kg/m³; no representa DVH ni carpintería completa", url: BRIEF },
-  puerta: { label: "Hoja de puerta", basis: "area", value: 15, unit: "kg/m²", source: "SUPUESTO 15 kg/m² de hoja; confirmar material y peso del fabricante", url: BRIEF }
+  puerta: { label: "Hoja de puerta", basis: "area", value: 15, unit: "kg/m²", source: "SUPUESTO 15 kg/m² de hoja; confirmar material y peso del fabricante", url: BRIEF },
+  escalon_chapa: { label: "Escalón de chapa plegada 3,2 mm", basis: "area", value: 28, unit: "kg/m²", source: "SUPUESTO: 3,2 mm × 7.850 kg/m³ = 25,1 kg/m² más el plegado de nariz y apoyo; confirmar desarrollo", url: BRIEF },
+  escalon_madera: { label: "Escalón de madera dura 38 mm", basis: "area", value: 25, unit: "kg/m²", source: "SUPUESTO: 0,038 m × ≈ 650 kg/m³; confirmar especie y espesor", url: BRIEF }
 };
 
 export const DEAD_LOAD_REFERENCE = {
@@ -72,6 +74,7 @@ export function surfaceLayers(project, surface) {
       : [layer("osb_18"), layer("aislacion_entrepiso"), layer("durlock")];
     case "vidrio": return [layer("vidrio")];
     case "cielorraso": return [layer("durlock")];
+    case "escalon": return [layer(surface.tread === "madera" ? "escalon_madera" : "escalon_chapa")];
     case "puerta": return [layer("puerta")];
     // La platea se pesa como sólido, no como superficie: evita contar hormigón dos veces.
     case "platea": return [];

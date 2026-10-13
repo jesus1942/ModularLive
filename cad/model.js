@@ -44,7 +44,25 @@ export function createRectangle(x0, y0, width, depth) {
 export const levelName = (index) => (index === 0 ? "Planta baja" : `Nivel ${index}`);
 
 export function createLevel(index, walls = [], height = DEFAULT_SETTINGS.wallHeight) {
-  return { id: newId("l"), name: levelName(index), height, walls };
+  return { id: newId("l"), name: levelName(index), height, walls, stairs: [] };
+}
+
+export const STAIR_DEFAULTS = { kind: "recta", dir: 0, width: 0.9, turn: "derecha", ruleSet: "municipal", tread: "chapa" };
+
+function normalizeStairs(stairs) {
+  return (Array.isArray(stairs) ? stairs : [])
+    .filter((st) => st && Number.isFinite(Number(st.x)) && Number.isFinite(Number(st.y)))
+    .map((st) => ({
+      id: st.id ?? newId("s"),
+      kind: ["recta", "L", "U"].includes(st.kind) ? st.kind : "recta",
+      x: Number(st.x),
+      y: Number(st.y),
+      dir: [0, 90, 180, 270].includes(Number(st.dir)) ? Number(st.dir) : 0,
+      width: Math.min(Math.max(Number(st.width) || STAIR_DEFAULTS.width, 0.6), 2),
+      turn: st.turn === "izquierda" ? "izquierda" : "derecha",
+      ruleSet: st.ruleSet === "accesible" ? "accesible" : "municipal",
+      tread: st.tread === "madera" ? "madera" : "chapa"
+    }));
 }
 
 /** Copia solo el contorno exterior (sin aberturas) para apilar un nivel nuevo encima. */
@@ -135,7 +153,8 @@ export function normalizeProject(raw) {
     id: level.id ?? newId("l"),
     name: level.name || levelName(index),
     height: Math.min(Math.max(Number(level.height) || project.settings.wallHeight, 2), 4.5),
-    walls: normalizeWalls(level.walls ?? [])
+    walls: normalizeWalls(level.walls ?? []),
+    stairs: normalizeStairs(level.stairs)
   }));
   project.engineering = normalizeEngineering(raw?.engineering, project.levels);
   delete project.walls;
