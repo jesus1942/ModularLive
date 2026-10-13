@@ -94,6 +94,7 @@ async function verifyComponents(page, label) {
   await page.waitForFunction(()=>!document.querySelector('#planSvg .balcony'));
   for(let i=0;i<3;i++)await page.locator('#redoBtn').click();
   await page.waitForFunction(()=>document.querySelector('#planSvg .balcony'));
+  assert.equal(await page.locator('#saveBtn').isVisible(),true,`Guardar diseño debe ser visible en ${label}.`);
   const saved=page.waitForEvent('download');await page.locator('#saveBtn').click();
   const download=await saved,path=`${output}${label}-components.json`;await download.saveAs(path);
   const project=JSON.parse(await readFile(path,'utf8'));await unlink(path);

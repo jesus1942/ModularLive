@@ -160,7 +160,7 @@ export function computeWind(project, gen, e) {
   const height = Math.max(0, ...envelope.flatMap((s) => s.points.map((p) => p[2])));
   const result = { edition, riskCategory: e.importance, source, height_m: height, cases, components, assumptions, issues, status: "review", scope: "Edificio regular, rectangular, rígido supuesto y altura ≤20 m. Presiones normales a la envolvente bruta; sin resguardo entre niveles." };
   if (gen.incompleteContours || gen.levels.some(lv => lv.footprints?.length > 1)) {
-    issues.push("Varias estructuras independientes: el viento global y su interferencia requieren resolver cada edificio por separado. Se conservan los pesos y cómputos de todos los contornos.");
+    issues.push(gen.incompleteContours ? "Viento sin calcular: hay contornos o aberturas sin resolver. Revisá las advertencias del diseño." : "Varias estructuras independientes: el viento global y su interferencia requieren resolver cada edificio por separado. Se conservan los pesos y cómputos de todos los contornos.");
     return result;
   }
   if (!envelope.length || height <= 0 || height > 20) { issues.push("Viento sin calcular: falta envolvente o la altura excede 20 m del alcance implementado."); return result; }

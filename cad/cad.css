@@ -432,7 +432,7 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
   .toolbar__label { display: none; }
   .toolbar__group { padding-right: 8px; }
   .toolbar__group--view button { padding: 6px 8px; }
-  .topbar__actions .btn--ghost:not(label) { display: none; }
+  .topbar__actions .btn--ghost:not(label):not(#saveBtn) { display: none; }
   .topbar__actions a.btn--ghost { display: inline-flex; }
   .results { padding: 12px; }
   #engineeringPanel { padding: 12px; }
