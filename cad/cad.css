@@ -478,3 +478,9 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
 .exposed-box { margin: 14px 0 4px; padding-top: 12px; border-top: 2px solid #111; }
 .exposed-box h4 { margin: 0 0 4px; }
 .exposed-box .fields { margin: 8px 0; }
+.eng-combination-link { padding: 0; border: 0; background: transparent; color: #111; text-decoration: underline; text-align: left; cursor: pointer; overflow-wrap: anywhere; font: inherit; }
+.eng-analysis { margin-block: 1.5rem; }
+.eng-analysis h4 { margin-top: 1rem; }
+#analysisCaseField select { max-width: 100%; }
+#analysisDetail { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; }
+@media print { .eng-combination-link { text-decoration: none; } }

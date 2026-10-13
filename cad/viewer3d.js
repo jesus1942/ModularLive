@@ -1,6 +1,8 @@
 // Visor 3D por capas. Planta (x, y, z) → three (x, z, y): Y de three es la altura.
 import * as THREE from "../vendor/three/three.module.min.js";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
+import { barAxes, sampleBarDiagram } from "./engineering/frame3d.js";
+import { formatForce } from "./engineering/units.js";
 
 export const LAYERS = [
   { id: "fundacion", label: "Fundación" },
@@ -93,6 +95,8 @@ export function createViewer(container) {
   scene.add(windGroup);
   const pointLoadGroup = new THREE.Group();
   scene.add(pointLoadGroup);
+  const analysisGroup = new THREE.Group();
+  scene.add(analysisGroup);
   const pointer = new THREE.Vector2(), raycaster = new THREE.Raycaster();
   renderer.domElement.addEventListener("pointermove", (event) => {
     const rect = renderer.domElement.getBoundingClientRect();
@@ -101,7 +105,10 @@ export function createViewer(container) {
     const hit = raycaster.intersectObjects(windGroup.children, false).find((h) => h.object.visible && h.object.userData.pressureFaces);
     const p = hit?.object.userData.pressureFaces?.[hit.faceIndex];
     const tooltip = document.querySelector("#windTooltip");
-    if (tooltip) tooltip.textContent = p ? `Zona ${p.zone} · ${(p.pressure_Pa / 1000).toLocaleString("es-AR", { maximumFractionDigits: 3 })} kN/m² · nivel ${p.level + 1}` : "";
+    raycaster.params.Line.threshold=.04;
+    const analysisHit=raycaster.intersectObjects(analysisGroup.children,true).find(h=>h.object.visible);
+    let object=analysisHit?.object;while(object&&!object.userData.analysisLabel)object=object.parent;
+    if (tooltip) tooltip.textContent = object?.userData.analysisLabel ?? (p ? `Zona ${p.zone} · ${(p.pressure_Pa / 1000).toLocaleString("es-AR", { maximumFractionDigits: 3 })} kN/m² · nivel ${p.level + 1}` : "");
   });
   const materialCache = new Map();
   const getMaterial = (key, factory) => {
@@ -119,7 +126,7 @@ export function createViewer(container) {
         child.visible = (child.userData.level ?? 0) <= maxLevel;
       })
     );
-    [windGroup, pointLoadGroup].forEach((g) => g.children.forEach((child) => { child.visible = (child.userData.level ?? 0) <= maxLevel; }));
+    [windGroup, pointLoadGroup, analysisGroup].forEach((g) => g.children.forEach((child) => { child.visible = (child.userData.level ?? 0) <= maxLevel; }));
   };
 
   function clearGroups() {
@@ -347,6 +354,37 @@ export function createViewer(container) {
     applyLevelVisibility();
   }
 
+  /** Ejes, reacciones o deformada del caso elegido. No modifica geometría de obra ni BOM. */
+  function setAnalysisView(model,response,mode,{amplification=10}={}) {
+    analysisGroup.traverse(object=>{object.geometry?.dispose();if(object.material){for(const m of Array.isArray(object.material)?object.material:[object.material])m.dispose();}});
+    analysisGroup.clear();
+    if(!model||mode==="none")return;
+    const nodes=new Map(model.nodes.map(n=>[n.id,n])),responses=new Map(response?.bars.map(b=>[b.barId,b])??[]);
+    const line=(points,color,level,label)=>{
+      const mesh=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points.map(toV)),new THREE.LineBasicMaterial({color,transparent:true,opacity:.95,depthTest:false}));
+      mesh.renderOrder=20;mesh.userData={level,analysisLabel:label};analysisGroup.add(mesh);
+    };
+    model.bars.forEach(bar=>{
+      const a=nodes.get(bar.a).point_m,b=nodes.get(bar.b).point_m;
+      line([a,b],mode==="analysis-deformed"?0x999999:0x111111,bar.level,`${bar.group} · eje analítico · nivel ${bar.level+1}`);
+      if(mode!=="analysis-deformed"||!responses.has(bar.id))return;
+      const r=responses.get(bar.id),axes=barAxes(a,b,bar.yAxis),L=Math.hypot(...b.map((v,i)=>v-a[i]));
+      const samples=sampleBarDiagram(bar,a,b,r);
+      const points=samples.map(s=>a.map((v,i)=>v+s.x_m*axes[0][i]+amplification*((r.endDisplacements_local[0]*(1-s.x_m/L)+r.endDisplacements_local[6]*s.x_m/L)*axes[0][i]+s.uy_m*axes[1][i]+s.uz_m*axes[2][i])));
+      line(points,0x111111,bar.level,`${bar.group} · deformada elástica ×${amplification}, sin segundo orden`);
+    });
+    if(mode==="analysis-reactions"&&response) {
+      const largest=Math.max(1,...response.reactions.map(r=>Math.hypot(...r.force_N)));
+      response.reactions.forEach(r=>{
+        const force=toV(r.force_N),length=.2+.8*force.length()/largest;
+        if(force.length()<1e-8)return;
+        const arrow=new THREE.ArrowHelper(force.normalize(),toV(r.point_m),length,0x111111,.12,.065);
+        arrow.userData={level:nodes.get(r.nodeId)?.level??0,analysisLabel:`Reacción: X ${formatForce(r.force_N[0])}; Y ${formatForce(r.force_N[1])}; Z ${formatForce(r.force_N[2])}. Fundación sin dimensionar.`};analysisGroup.add(arrow);
+      });
+    }
+    applyLevelVisibility();
+  }
+
   function frame() {
     const box = new THREE.Box3();
     Object.values(layerGroups).forEach((g) => box.expandByObject(g));
@@ -388,6 +426,7 @@ export function createViewer(container) {
     build,
     setWindPatches,
     setPointLoads,
+    setAnalysisView,
     frame,
     highlightWall,
     setLayerVisible,

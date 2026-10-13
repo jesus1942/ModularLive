@@ -1,6 +1,7 @@
 import { bbox, polygonArea, pointInPolygon } from "../geometry.js";
 import { SNOW_IMPORTANCE, SOURCES } from "./data/reglamentos.js";
 import { areaCenter_m, clip3D, actionResultant } from "./load-geometry.js";
+import { roofSurfaceGeometry } from "./roof-surface.js";
 
 // 104-2005 Fig.9: cotas superiores leídas del gráfico, redondeadas HACIA ARRIBA.
 // Se usa siguiente lu y siguiente pg, sin interpolar ni extrapolar: aproximación conservadora,
@@ -47,16 +48,17 @@ export function computeSnow(project, gen, e) {
   const rows = [], issues = [], assumptions = [], cases = [];
   for (const sf of surfaces) {
     const bb = bbox(gen.levels[sf.level].footprint);
-    const theta = sf.level === gen.levels.length - 1 ? Math.atan(project.roof.slope / 100) * 180 / Math.PI : 0;
-    const type = sf.level === gen.levels.length - 1 ? project.roof.type : "plano";
+    const geometry = roofSurfaceGeometry(project, gen, sf);
+    const theta = geometry.theta_deg;
+    const type = geometry.roofType;
     const width = type === "dos_aguas" ? Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY) / 2 + project.roof.overhang : Math.min(bb.maxX - bb.minX, bb.maxY - bb.minY);
     const info = balancedSnow({ pg_Pa: e.location.pg * 1000, Ce: e.snow.Ce, Ct: e.snow.Ct, importance: e.importance, theta_deg: theta, roofType: type, width_m: width });
     const planArea_m2 = Math.abs(polygonArea(sf.points.map((p) => ({ x: p[0], y: p[1] }))));
-    rows.push({ ...info, id: `S:${sf.key}`, level: sf.level, surfaceKey: sf.key, points: sf.points, planArea_m2, point_m: areaCenter_m(sf.points), force_N: [0, 0, -info.pressure_Pa * planArea_m2] });
+    rows.push({ ...info, roofType: type, theta_deg: theta, slope_percent: geometry.slope_percent, id: `S:${sf.key}`, level: sf.level, surfaceKey: sf.key, points: sf.points, planArea_m2, point_m: areaCenter_m(sf.points), force_N: [0, 0, -info.pressure_Pa * planArea_m2] });
   }
   cases.push({ id: "S:balanceada", kind: "S", label: "Nieve balanceada", entries: rows, ...actionResultant(rows) });
   if (!e.snow.confirmed || !e.snow.source) assumptions.push({ id: "snow:factors", scope: "nieve", message: `Ce=${e.snow.Ce} y Ct=${e.snow.Ct} supuestos (104 Tablas2/3). Ct=1,2 inicial evita suponer calefacción permanente. Confirmá exposición y condición térmica.` });
-  assumptions.push({ id: "snow:slope", scope: "nieve", message: "Cs=1: no se aprovecha evacuación por pendiente. Cubierta retenedora supuesta para masa sísmica; confirmar deslizamiento, acumulación no balanceada y caída sobre niveles inferiores." });
+  assumptions.push({ id: "snow:slope", scope: "nieve", message: "Cada paño usa su tipo y pendiente reales. Cs=1: cota conservadora sin aprovechar evacuación (104 Fig.2); no se acredita ausencia de obstrucciones/aislación. Deslizamiento sobre cubiertas inferiores según Cap.9, suponiendo que puede ocurrir: no se reduce por retención sin diseño documentado." });
   // Carga parcial por paño (conserva equilibrio y evita sumar casos alternativos).
   if (rows.length > 1) rows.forEach((r) => {
     const entries = rows.map((a) => a.id === r.id ? a : { ...a, pressure_Pa: a.pressure_Pa / 2, force_N: a.force_N.map((v) => v / 2) });
@@ -110,7 +112,41 @@ export function computeSnow(project, gen, e) {
         cases.push({ id: `S:no-balanceada:${leeward.surfaceKey}`, kind: "S", label: "Nieve no balanceada · dos aguas", entries, beta, W_m: W, leewardFactor: factor, reference: "104-05 §6.1;Fig.5;ec.(3)", ...actionResultant(entries) });
       });
     }
-    if (gen.levels.length > 1) issues.push("Caída y deslizamiento de nieve desde cubierta inclinada sobre niveles inferiores (104 Cap.9): no calculados.");
+  }
+  const sliding = slidingSnow(project, gen, e, surfaces, rows, issues);
+  if (sliding.length) {
+    const entries = [...rows, ...sliding];
+    cases.push({ id:"S:deslizamiento", kind:"S", label:"Nieve balanceada + caída por deslizamiento", entries, reference:"CIRSOC 104-2005 Cap.9:0,4pfW por m de alero, franja 4,5 m; reducción proporcional por ancho inferior", ...actionResultant(entries) });
+    // §7 y Cap.9 pueden actuar juntos; no son alternativas que puedan omitirse.
+    for (const c of cases.filter(c=>c.id.startsWith("S:drift:")||c.id==="S:acumulacion-envolvente")) {
+      const joined=[...c.entries,...sliding];
+      cases.push({...c,id:`${c.id}:deslizamiento`,label:`${c.label} + deslizamiento`,entries:joined,...actionResultant(joined)});
+    }
   }
   return { source: SOURCES.snow, cases, assumptions, issues: [...new Set(issues)], rows, status: "review" };
+}
+
+/** Caída desde paños superiores ortogonales, sobre la proyección horizontal de cubiertas reales. */
+export function slidingSnow(project,gen,e,surfaces,rows,issues=[]) {
+  const result=[];
+  for(const upper of surfaces) {
+    const geometry=roofSurfaceGeometry(project,gen,upper),smooth=["chapa_sinusoidal","chapa_trapezoidal","panel_sandwich"].includes(project.settings.roofCladding);
+    if(geometry.slope_percent <= (smooth?2:16)+1e-8)continue;
+    const n=geometry.normal,axis=geometry.axis,other=1-axis;
+    if(Math.abs(n[other])>1e-6){issues.push("Deslizamiento de nieve en paño oblicuo: requiere trazado de caída específico.");continue;}
+    const box=bbox(upper.points.map(p=>({x:p[0],y:p[1]}))),min=axis===0?box.minX:box.minY,max=axis===0?box.maxX:box.maxY;
+    const sign=n[axis]>0?1:-1,eave=sign>0?max:min,W_m=max-min;
+    const upperLoad=rows.find(r=>r.surfaceKey===upper.key),pressure_Pa=.4*upperLoad.pf_Pa*W_m/4.5;
+    const sideMin=other===0?box.minX:box.minY,sideMax=other===0?box.maxX:box.maxY;
+    const edgeZ=Math.min(...upper.points.map(p=>p[2]));
+    for(const lower of surfaces.filter(s=>s.level<upper.level)) {
+      let points=clip3D(clip3D(lower.points,other,sideMin,true),other,sideMax,false);
+      points=clip3D(clip3D(points,axis,eave,sign>0),axis,eave+sign*4.5,sign<0);
+      if(points.length<3||Math.max(...points.map(p=>p[2]))>=edgeZ-.01)continue;
+      const planArea_m2=Math.abs(polygonArea(points.map(p=>({x:p[0],y:p[1]}))));
+      if(planArea_m2<1e-8)continue;
+      result.push({id:`S:slide:${upper.key}:${lower.key}`,level:lower.level,surfaceKey:lower.key,upperSurfaceKey:upper.key,points,point_m:areaCenter_m(points),pressure_Pa,planArea_m2,force_N:[0,0,-pressure_Pa*planArea_m2],pf_Pa:upperLoad.pf_Pa,W_m,spread_m:4.5,reference:"CIRSOC 104-2005 Cap.9:pslide=0,4pfW/4,5; F=pslide×área horizontal receptora"});
+    }
+  }
+  return result;
 }

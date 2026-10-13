@@ -1,4 +1,12 @@
-import { area3D } from "../geometry.js";
+import { area3D, polygonArea } from "../geometry.js";
+
+/** Área neta y centro (m), descontando huecos en el mismo plano 3D. */
+export function netSurfaceGeometry(points, holes = [], plan = false) {
+  const area = (p) => plan ? Math.abs(polygonArea(p.map(q => ({ x:q[0], y:q[1] })))) : area3D(p);
+  let A = area(points), weighted = areaCenter_m(points).map(v => v*A);
+  for (const hole of holes) { const a=area(hole),center=areaCenter_m(hole); A-=a; weighted=weighted.map((v,i)=>v-a*center[i]); }
+  return { area_m2:A, center_m:A>1e-10 ? weighted.map(v=>v/A) : areaCenter_m(points) };
+}
 
 /** Centro de área de un polígono plano 3D (m), por triángulos orientados, admite concavidad. */
 export function areaCenter_m(points) {

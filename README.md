@@ -40,11 +40,13 @@ El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, 
 - **Cerramientos**: placas, aislación, barrera de viento y revestimientos por superficie neta (descontando aberturas e incluyendo hastiales).
 - **Lista de cortes**: optimiza los cortes sobre la barra comercial (6 m por defecto, con espesor de corte) y marca los empalmes de piezas más largas que la barra.
 
-### Ingeniería · fase 1 (cargas)
+### Ingeniería · fase 2 (análisis preliminar)
 
 Proyecto, especificación y dirección: **Jesús Olguín · jesus.olguin**. Implementación asistida: **ingeniero Astra el Evangelista**. Los créditos se conservan en interfaz, impresión y commits; no constituyen firma profesional.
 
-La pestaña **Ingeniería** calcula el material instalado y acciones preliminares. **Revisar** es el estado de esta fase: aún no hay análisis del pórtico, reacciones, dimensionado ni verificación de estabilidad. El selector bajo el 3D muestra los casos principales o la envolvente local de componentes y revestimientos. Oscuro indica succión, claro presión; las flechas indican el sentido. Al apuntar una zona se muestra su presión.
+La pestaña **Ingeniería** calcula material instalado, acciones, bajada de cargas y el **pórtico elástico de primer orden**. **Revisar** sigue siendo el estado global: no se acredita resistencia, segundo orden, uniones, anclajes ni estabilidad de fundaciones. El selector bajo el 3D muestra viento, modelo analítico, reacciones y deformada amplificada. Oscuro indica succión, claro presión; las flechas indican el sentido. Al apuntar una zona se muestra su presión.
+
+El cálculo corre en un **Worker de módulos**, con 300 ms de debounce. Una edición termina el Worker anterior y descarta sus respuestas; no se conservan cifras de un proyecto viejo. El generador y el BOM siguen siendo la fuente de las piezas. El cálculo conserva su detalle en el Worker: pedí **Descargar detalle JSON** para obtener casos, rutas, combinaciones, esfuerzos y envolventes completos.
 
 - Barras con `key` estable: peso por corte real y sección nominal. Las claves llegan al BOM y a la lista de cortes.
 - Superficies con capas: pesos netos sin merma de compra. Aislación de tabique una sola vez, chapa sobre pendiente y alero, lana sobre planta cubierta.
@@ -66,7 +68,22 @@ La pestaña **Ingeniería** calcula el material instalado y acciones preliminare
 | Fundación | 6 × 0,40 × 0,40 × 0,80 = 0,768 m³ | **18,432 kN (1,880 tf)** |
 | Total modelado | vivienda + fundación | **57,340 kN (5,847 tf)** |
 
-La fase 0 pesaba 54,987 kN en total. La diferencia intencional es **2,353171 kN**: 65,36 m de tubos nominales × 1,426816 kg/m × g₀ más 18 m² × 8,15 kg/m² × g₀. No cambian las cantidades originales de columnas, viguetas o cabios. La cuenta manual está en `base.test.js`. El snapshot histórico de fase 0 se conserva; `fixtures/default-phase-1.json` guarda el resultado completo, comprimido sin pérdida y con SHA-256, sólo para pruebas.
+La fase 0 pesaba 54,987 kN en total. La diferencia intencional de fase 1 es **2,353171 kN**: 65,36 m de tubos nominales × 1,426816 kg/m × g₀ más 18 m² × 8,15 kg/m² × g₀. **La fase 2 no cambia piezas, secciones, cantidades ni peso.** Corrige el centro de aplicación de superficies con huecos y agrega análisis. La cuenta manual está en `base.test.js`. Los snapshots históricos de fases 0/1 se conservan; `fixtures/default-phase-2.json` fija el resultado completo actual, comprimido sin pérdida y con SHA-256, sólo para pruebas.
+
+### Cómo calcula la estructura
+
+- Pórtico con columnas y bastidores **existentes**, elementos Euler-Bernoulli de 12 GDL, EA, EIy, EIz y GJ. Propiedades geométricas nominales coherentes con masa/3D, sin radios; J por Bredt-Batho y ν=0,30 supuestos. No son resistencias de catálogo certificadas.
+- Los bastidores se llevan de su centro visual ±h/2 a las cotas lógicas `elev/zTop`. Bases articuladas. Dentro de un módulo se supone continuidad rígida soldada, pendiente de verificar; entre módulos se comparten sólo traslaciones. Una columna superior que cae sobre una viga divide esa **misma pieza** en barras analíticas, sin agregar acero.
+- Secundarias: bandas geométricas hasta la mitad de distancia entre viguetas/cabios/montantes. Reacciones por estática, con pares `r×F` para conservar excentricidad. El peso propio de la principal usa su masa instalada, sin merma. La fundación queda excluida. Un piso directamente sobre suelo descarga separado, sin agregar su sobrecarga a columnas.
+- Skyline, Reverse Cuthill-McKee y LDLᵀ escalado. Liberaciones por condensación estática; no se agregan resortes para ocultar mecanismos. El solver puro admite tensores de sólo tracción por conjunto activo, sin superponer estados activos distintos; la app todavía no agrega cruces automáticamente.
+- Cada caso del pórtico se resuelve una vez. Las combinaciones **lineales sin tensores** se superponen; se verifican las seis resultantes y el equilibrio hasta el suelo, con tolerancia relativa `10⁻⁶`. Cada barra se muestrea en 11 posiciones, agregando ambos lados de cargas puntuales, y se conserva la posición/combinación de sus extremos.
+- La vista de reacciones recupera cualquier combinación. Las tablas muestran envolventes por apoyo, cuyos máximos pueden corresponder a combinaciones diferentes. La deformada es elástica y amplificada; no modifica piezas ni cantidades.
+
+**Resultado del módulo inicial:** 12 nodos, 18 barras principales, 136 casos y 2.661 combinaciones. La suma vertical de reacciones de D es **38,907696 kN**, igual al peso de la vivienda; no incluye 18,432 kN de dados. El error máximo de equilibrio es aproximadamente `3,2×10⁻¹⁴`. Con el escenario inicial **Vserv=35 m/s supuesto**, la deriva elástica de servicio llega a **75,92 mm**, frente a **H/400=6,795 mm**: **no cumple el límite del proyecto**. Se informa sin dimensionar anclajes ni atribuir capacidad a los dados. Requiere arriostramiento real, revisión de uniones y análisis de segundo orden antes de dimensionar.
+
+**Límites de esta entrega:** P-Δ/P-δ, rigidez reducida normativa y resistencia no implementados. No se emiten reacciones globales si hay columnas flotantes, cumbrera sin apoyo analítico, huecos de escalera/brochales, escaleras o balcones sin su conexión analítica resuelta. Esas piezas **siguen en el 3D y BOM**; el panel explica el camino pendiente. El reparto de resultantes sísmicas conserva fuerzas y pares, pero no acredita diafragma ni reparto por rigideces. La opción de empotrar bases no se utiliza hasta diseñar placas/anclajes para momento.
+
+**Rendimiento:** el Worker evita bloquear la edición y cancela cálculos obsoletos. La corrida local completa inicial ronda 1 s y dos niveles, 1,6 s; **los objetivos de 300 ms y 1,5 s en celular aún no están acreditados**. El JSON completo es voluminoso y se exporta desde el Worker sólo al solicitarlo.
 
 ### Cómo calcula las acciones
 
@@ -75,7 +92,7 @@ La fase 0 pesaba 54,987 kN en total. La diferencia intencional es **2,353171 kN*
 | D | CIRSOC 101-2025 §§3.1.1/3.1.2; antecedente 101-2005 §3.1. Masas reales modeladas y equipos aportados; no incluye equipos no cargados, acabados extra ni herrajes aún sin piezas. |
 | L | Tabla 4.1 de 101-2025/2005: vivienda 2 kPa, oficina 2,5, depósito liviano 6, terraza privada 3/pública 5, balcón de vivienda 3 hasta 10 m²/5 después, escaleras 5 como criterio general. La función de reducción por elemento respeta KLL·At≥37 m², mínimos y prohibiciones; la carga global **no se reduce** antes del análisis tributario. |
 | Lr | 101-2025 §4.8.1(a/b): distingue cubierta liviana ≤0,5 kPa incluyendo su estructura/placa, con R1/R2 de área y pendiente. Para el techo inicial al 2 %, **0,765 kPa**. 101-2005 §4.9.1 da 0,96 kPa sin reducción. At=1 m² en la acción global asegura R1=1; no se usa toda la cubierta como área de una fijación. |
-| S | CIRSOC 104-2005 §§3/3.4/4: 0,7CeCtIpg, mínimo de baja pendiente y Cs=1 sin aprovechar evacuación. Ct=1,2 inicial es supuesto. Con pg=0,30 kPa resulta **S=0,30 kPa**, no 0,252. Acumulación triangular de §7.1 sobre cubierta inferior, superpuesta a balanceada y truncada en el borde; hd usa cotas superiores tabuladas de Fig.9, redondeo hacia arriba y siguiente intervalo, **no interpolación exacta**. Fuera de pg≤5 kPa/lu≤120 m se informa cálculo específico pendiente. Nieve no balanceada a dos aguas: §6.1, ambos sentidos; parciales por paño completo/resto a mitad, sin sustituir futuros patrones por tramo. |
+| S | CIRSOC 104-2005 §§3/3.4/4: 0,7CeCtIpg, mínimo de baja pendiente y Cs=1 sin aprovechar evacuación. **Cada superficie usa su pendiente/tipo propios**, también la cubierta inferior. Ct=1,2 inicial es supuesto. Con pg=0,30 kPa resulta **S=0,30 kPa**, no 0,252. Acumulación triangular de §7.1 sobre cubierta inferior, superpuesta a balanceada y truncada en el borde; hd usa cotas superiores tabuladas de Fig.9, redondeo hacia arriba y siguiente intervalo, **no interpolación exacta**. Fuera de pg≤5 kPa/lu≤120 m se informa cálculo específico pendiente. **Cap.9:** nieve deslizante `0,4pfW` por m de alero, distribuida en 4,5 m; una cubierta inferior más angosta recibe la reducción proporcional, sin concentrar el total. Se suma a balanceada y a acumulación. Paños ortogonales; caída oblicua exige estudio específico. Nieve no balanceada a dos aguas: §6.1, ambos sentidos; parciales por paño completo/resto a mitad, sin sustituir futuros patrones por tramo. |
 | W 2025 | CIRSOC 102-2025: qz=0,613KzKztKdKeV² (§1.13.2), Kd=0,85, Kz de Tabla1.13-1, Ke=1 permitido en §1.12. G=0,85 supone rigidez pendiente. Método direccional §2.4.1/Fig.2.4-1, cuatro sentidos, GCpi±0,18/0,55 (Tabla1.11-1), alternativas de Cp y casos torsionales1–4 de Fig.2.4-8. Diagonales conservan la presión de cubierta más desfavorable, sin sumar dos techos. Mínimo horizontal §2.1.5; corrección del corte sin beneficio de techo (Fig.2.4-1 nota7). Alero: presión inferior+0,8, sin aplicar presión interna fuera del edificio. |
 | W 2005 | 102-2005 §5.10 ec.(13), Tabla5, I de Tabla1; Fig.3 y Fig.5B/7A para techo. No se aplican los casos torsionales2/4 de Fig.9 a edificios≤20 m. Mínimos de §1.4. |
 | C&R | 102-2025 §5.3.2/Fig.5.3-1,2A–D,5A/B y Tablas C5.3-1 a C5.3-5; 2005 Fig.5A/5B/7A. Curvas por área efectiva con interpolación logarítmica; zonas de esquinas, bordes, cumbrera y aleros. Mínimo local **0,80 kPa** en 2025 (§5.2.2), 0,50 en 2005 (§1.4.2). La envolvente local **no se suma** como viento global. |
@@ -97,7 +114,9 @@ Fuentes primarias y coeficientes versionados: `data/reglamentos.js`, `data/locat
 
 Faltan presiones bajo piso elevado (Fig.5.3-1A), edificios abiertos, parapetos, respuestas flexibles/dinámicas, lluvia/embalsamiento, hielo, caída de nieve desde cubiertas superiores y cargas de montaje. Centros de masa, concentración en diafragmas, regularidad sísmica y reparto por rigidez son preliminares. Las acciones y envolventes son **fuerzas y momentos de cargas, no reacciones ni chequeos de anclajes**. Las cargas concentradas de uso se registran para futuro análisis local; no se verifica aún la posición más desfavorable. Suelo100 kPa y resistencias requieren documentación. El estado permanece **Revisar**.
 
-La próxima entrega es **fase2 · Análisis**, según `docs/PROMPT-ASTRA-motor-estructural.md`. El cálculo y planos para construir requieren revisión y firma de un profesional matriculado.
+Referencias de análisis: [formulación Euler-Bernoulli de TU Delft](https://interactivetextbooks.citg.tudelft.nl/computational-modelling/structural_linear/euler_bernouilli.html) y [CIRSOC 301-2018, Cap.C](https://www.inti.gob.ar/assets/uploads/files/cirsoc/08-reglamentos-3ra-generacion/area300/08_Area300-1A-301-Reglamento-CIRSOC-301-18-APROBADO.pdf). INTI lista la edición 2018 como tercera generación, aprobada por Resoluciones 112/2023 y 170/2023: tenerla en cuenta al implementar resistencias. **El cálculo de primer orden de esta fase no acredita el método de análisis directo del Cap.C.**
+
+La próxima entrega es **fase3 · Barras**, cerrando primero segundo orden y los apoyos analíticos pendientes, según `docs/PROMPT-ASTRA-motor-estructural.md`. El cálculo y planos para construir requieren revisión y firma de un profesional matriculado.
 
 ### Estructura del código
 
@@ -118,6 +137,12 @@ La próxima entrega es **fase2 · Análisis**, según `docs/PROMPT-ASTRA-motor-e
 | `cad/engineering/loads.js`, `engine.js` | D, L, Lr y orquestación de casos y combinaciones |
 | `cad/engineering/wind.js`, `snow.js`, `seismic.js` | Acciones climáticas/sísmicas y supuestos |
 | `cad/engineering/combinations.js` | Combinaciones y envolventes de cargas, sin reacciones |
+| `cad/engineering/data/sections.js` | Propiedades geométricas nominales de las secciones existentes |
+| `cad/engineering/frame3d.js` | Solver espacial, articulaciones, tensores, equilibrio y diagramas |
+| `cad/engineering/analytical-model.js`, `tributary.js` | Nodos/barras reales y bajada trazable de cargas |
+| `cad/engineering/analysis.js` | Combinaciones de respuestas, envolventes y derivas |
+| `cad/engineering/roof-surface.js` | Tipo, pendiente y dirección propios de cada paño |
+| `cad/engineering/worker.js`, `worker-client.js` | Cálculo fuera de interfaz, cancelación y exportación completa |
 | `cad/engineering/load-geometry.js` | Recortes 3D, centros y resultantes |
 | `cad/engineering/panel.js` | Panel, cargas puntuales, pesos editables y extracto imprimible |
 

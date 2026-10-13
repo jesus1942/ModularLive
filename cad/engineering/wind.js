@@ -181,9 +181,10 @@ export function computeWind(project, gen, e) {
       cuts = [0, 1].map((axis) => {
         const min = axis === 0 ? bb.minX : bb.minY, max = axis === 0 ? bb.maxX : bb.maxY;
         const omin = axis === 0 ? outer.minX : outer.minY, omax = axis === 0 ? outer.maxX : outer.maxY;
-        const flat = project.roof.type === "dos_aguas" ? theta <= (edition === "2025" ? 7 : 10) : theta <= 3;
-        const ccDistances = flat && edition === "2025" ? [.2 * h, .6 * h, 1.2 * h] : project.roof.type === "dos_aguas" || flat ? [a] : [a, 2 * a, 4 * a];
-        const ridgeCuts = !flat && project.roof.type === "dos_aguas" && axis === (lv.spanAxis === "x" ? 0 : 1) ? [(min + max) / 2 - a, (min + max) / 2 + a] : [];
+        const geometry = roofSurfaceGeometry(project, gen, sf);
+        const flat = geometry.roofType === "dos_aguas" ? theta <= (edition === "2025" ? 7 : 10) : theta <= 3;
+        const ccDistances = flat && edition === "2025" ? [.2 * h, .6 * h, 1.2 * h] : geometry.roofType === "dos_aguas" || flat ? [a] : [a, 2 * a, 4 * a];
+        const ridgeCuts = !flat && geometry.roofType === "dos_aguas" && axis === geometry.axis ? [(min + max) / 2 - a, (min + max) / 2 + a] : [];
         return [min, max, ...ridgeCuts, ...[h / 2, h, 2 * h].flatMap((d) => [min + d, max - d]), ...ccDistances.flatMap((d) => [omin + d, omax - d])].filter((v) => v > omin && v < omax);
       });
     } else {
@@ -222,7 +223,7 @@ export function computeWind(project, gen, e) {
         const face = sf.material === "cubierta" ? dot < -1e-8 ? "barlovento" : "sotavento" : dot < -.1 ? "barlovento" : dot > .1 ? "sotavento" : "lateral";
         const eave = sf.material === "cubierta" && !pointInPolygon({ x: patch.center[0], y: patch.center[1] }, lv.footprint);
         const distance = dir.sign > 0 ? patch.center[dir.axis] - min : max - patch.center[dir.axis];
-        const Cp = sf.material === "cubierta" ? roofCp({ theta_deg: theta, parallel: dir.axis !== (lv.spanAxis === "x" ? 0 : 1), face, h_m: h, L_m: L, distance_m: Math.max(0, distance), branch }) : wallCp(face, L / B);
+        const Cp = sf.material === "cubierta" ? roofCp({ theta_deg: theta, parallel: dir.axis !== roofSurfaceGeometry(project, gen, sf).axis, face, h_m: h, L_m: L, distance_m: Math.max(0, distance), branch }) : wallCp(face, L / B);
         const qh = q(globalH).qz_Pa, qz = sf.material === "exterior" && face === "barlovento" ? q(patch.center[2]).qz_Pa : qh;
         // Alero abierto: GCpi no actúa; la presión inferior +0,8 se resta del Cp superior.
         const pressure = eave ? qh * .85 * (Cp - .8) : qz * .85 * Cp - qh * result.GCpi * internalSign;
@@ -290,9 +291,10 @@ export function computeWind(project, gen, e) {
     const eave = roof && !pointInPolygon({ x: patch.center[0], y: patch.center[1] }, lv.footprint);
     const distanceX = Math.min(patch.center[0] - bb.minX, bb.maxX - patch.center[0]), distanceY = Math.min(patch.center[1] - bb.minY, bb.maxY - patch.center[1]);
     const edge = Math.abs(n[0]) > .9 ? distanceY < a : distanceX < a;
-    const zone = roof ? roofZone(edition, z.outer, patch.center, h, theta, sf.level === gen.levels.length - 1 ? project.roof.type : "plano", lv.spanAxis) : edge ? "5" : "4";
+    const geometry = roof ? roofSurfaceGeometry(project, gen, sf) : null;
+    const zone = roof ? roofZone(edition, z.outer, patch.center, h, theta, geometry.roofType, geometry.axis === 0 ? "x" : "y") : edge ? "5" : "4";
     const area = e.wind.effectiveArea_m2;
-    const gc = (positive) => componentGCp({ edition, roofType: sf.level === gen.levels.length - 1 ? project.roof.type : "plano", theta_deg: theta, zone, area_m2: area, eave, positive });
+    const gc = (positive) => componentGCp({ edition, roofType: geometry?.roofType ?? "plano", theta_deg: theta, zone, area_m2: area, eave, positive });
     const low = gc(false), high = gc(true);
     if (low === null || high === null) { issues.push("C&R de vertiente única >30° no implementado; faltan presiones locales y fijaciones en esa cubierta."); continue; }
     const qh = q(globalH, true).qz_Pa;
@@ -300,7 +302,7 @@ export function computeWind(project, gen, e) {
     const internal = eave ? 0 : result.GCpi;
     components.push({ ...patchAction(sf, patch.points, n, -Math.max(minP, -qh * (low - internal)), { id: patch.id, zone, eave }), effectiveArea_m2: area, GCpNegative: low, GCpPositive: high,
       negative_Pa: -Math.max(minP, -qh * (low - internal)), positive_Pa: Math.max(minP, qh * (high + internal)), qh_Pa: qh, GCpi: internal,
-      reference: edition === "2025" ? `102-25 §5.3.2;Fig.5.3-${roof ? project.roof.type === "dos_aguas" ? "2" : theta <= 3 ? "2A" : "5A/B" : "1"};mínimo §5.2.2` : `102-05 §5.12;Fig.${roof ? theta <= 3 || project.roof.type === "dos_aguas" ? "5B" : "7A" : "5A"};mínimo §1.4.2` });
+      reference: edition === "2025" ? `102-25 §5.3.2;Fig.5.3-${roof ? geometry.roofType === "dos_aguas" ? "2" : theta <= 3 ? "2A" : "5A/B" : "1"};mínimo §5.2.2` : `102-05 §5.12;Fig.${roof ? theta <= 3 || geometry.roofType === "dos_aguas" ? "5B" : "7A" : "5A"};mínimo §1.4.2` });
   }
   if (zones.some((z) => z.sf.material === "cubierta" && z.theta > (edition === "2025" ? 7 : 10) && project.roof.overhang > 0)) assumptions.push({ id: "wind:slopedEave", scope: "C&R", message: "Aleros inclinados 2025: se adopta envolvente adicional techo + presión inferior 0,85×0,8 donde no se tabuló curva neta. Revisar coeficientes locales específicos antes de diseñar fijaciones." });
   // Mínimo SPRFV: acción HORIZONTAL sobre proyección vertical, no levantamiento de techo.
@@ -322,3 +324,4 @@ export function computeWind(project, gen, e) {
   result.localRange_Pa = components.length ? [Math.min(...components.map((p) => p.negative_Pa)), Math.max(...components.map((p) => p.positive_Pa))] : [0, 0];
   return result;
 }
+import { roofSurfaceGeometry } from "./roof-surface.js";
