@@ -199,10 +199,13 @@
           </div>
           </div>
           <div class="engineering eng-wind-view" id="windViewControls">
-            <label>Vista de cargas<select id="windViewMode"><option value="model">Modelo de obra</option><option value="main">Viento · sistema principal</option><option value="local-negative">Viento · succión local C&R</option><option value="local-positive">Viento · presión local C&R</option></select></label>
+            <label>Vista de cargas<select id="windViewMode"><option value="model">Modelo de obra</option><option value="main">Viento · sistema principal</option><option value="local-negative">Viento · succión local C&R</option><option value="local-positive">Viento · presión local C&R</option><option value="analysis-model">Modelo analítico</option><option value="analysis-reactions">Reacciones</option><option value="analysis-deformed">Deformada elástica</option></select></label>
             <label id="windCaseField" hidden>Caso de viento<select id="windCaseSelect"></select></label>
+            <label id="analysisCaseField" hidden>Combinación de análisis<select id="analysisCombinationSelect" disabled></select></label>
+            <label id="deformationScaleField" hidden>Amplificación de deformada<select id="deformationScale"><option value="1">×1</option><option value="5">×5</option><option value="10" selected>×10</option><option value="25">×25</option></select></label>
             <p class="eng-note" id="windLegend" aria-live="polite"></p>
             <p class="eng-note" id="windTooltip" aria-live="polite"></p>
+            <div id="analysisDetail" hidden aria-live="polite"></div>
           </div>
         </div>
       </section>

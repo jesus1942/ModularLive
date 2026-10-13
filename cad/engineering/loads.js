@@ -3,7 +3,7 @@ import { polygonArea } from "../geometry.js";
 import { DEAD_LOAD_REFERENCE, resolveMaterial } from "./data/materials.js";
 import { normalizeEngineering } from "./settings.js";
 import { G0_m_s2 } from "./units.js";
-import { areaCenter_m, normal3D, actionResultant } from "./load-geometry.js";
+import { areaCenter_m, normal3D, actionResultant, netSurfaceGeometry } from "./load-geometry.js";
 import { USES, SOURCES } from "./data/reglamentos.js";
 import { pointInPolygon } from "../geometry.js";
 
@@ -70,7 +70,7 @@ export function computeDeadLoad(project, gen) {
       append({
         key: `${sf.key}:layer:${i}:${m.id}`, surfaceKey: sf.key, wallId: sf.wallId,
         level: sf.level, kind: "surface", group: sf.packageLabel, label: m.label, materialId: m.id,
-        point_m: areaCenter_m(sf.points),
+        point_m: netSurfaceGeometry(sf.points, sf.holes ?? []).center_m,
         unit: "m²", formula: "masa = área neta instalada × masa por m²; peso = masa × g₀",
         inputs: { area_m2: layer.area_m2, mass_kg_m2: m.value, g0_m_s2: G0_m_s2 },
         source: m.source, reference: DEAD_LOAD_REFERENCE.label,

@@ -15,7 +15,7 @@ import { split3D, areaCenter_m, actionResultant } from "./load-geometry.js";
 import { G0_m_s2 } from "./units.js";
 
 const near = (actual, expected, tolerance = 1e-6) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} ≠ ${expected}`);
-const run = (p) => runEngineering(p, generate(p));
+const run = (p) => runEngineering(p, generate(p), { analyze:false });
 const settings = (p) => normalizeEngineering(p.engineering, p.levels);
 
 test("cielorraso real: 18 m², 16 tubos de 2,96 m, marco de 18 m, cortes y compra", () => {

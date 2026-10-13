@@ -83,7 +83,7 @@ export function engineeringSummaryHtml(result) {
     <dl class="eng-metrics"><div><dt>Vivienda · peso modelado</dt><dd>${formatForce(result.totals.superstructure_N)}</dd></div>
     <div><dt>Fundación · peso separado</dt><dd>${formatForce(result.totals.foundation_N)}</dd></div></dl>
     <dl class="eng-metrics"><div><dt>Viento ${result.codeEdition} · qh</dt><dd>${result.wind.referencePressure ? formatPressure(result.wind.referencePressure.qz_Pa) : "Sin calcular"}</dd></div></dl>
-    <p class="eng-note">${result.loadCases.length} casos · ${result.combinations.length} combinaciones. Escenario con supuestos; resistencia y anclajes pendientes.</p>
+    <p class="eng-note">${result.loadCases.length} casos · ${result.combinations.length} combinaciones. ${result.analysis?.status === "calculated" ? `Equilibrio verificado en ${result.analysis.combinationChecks.length} combinaciones. ${result.analysis.drifts.some(d=>d.status==="fails_project_limit")?"No cumple el límite de desplazamiento del proyecto.":"Análisis elástico disponible."}` : "Análisis sin resolver."} Escenario con supuestos; resistencia y anclajes pendientes.</p>
     <button type="button" class="btn btn--ghost" data-show-engineering>Ver detalle y supuestos</button>`;
 }
 
@@ -92,10 +92,11 @@ const groupsTable = (result, project) => `<div class="table-wrap"><table class="
 /** Detalle de pesos, trazabilidad por pieza y edición de los materiales usados. */
 export function engineeringResultHtml(result, project) {
   const used = [...new Set(result.entries.map((row) => row.materialId))].filter((id) => resolveMaterial(id));
-  return `<div class="eng-heading"><div><p class="eng-kicker">ActivaModular · Ingeniería · fase 1</p><h2>Cargas del modelo · edición ${result.codeEdition}</h2><p>Autor del proyecto: <strong>Jesús Olguín · jesus.olguin</strong></p></div><button type="button" class="btn btn--ghost" id="engineeringJsonBtn">Descargar detalle JSON</button></div>
+  return `<div class="eng-heading"><div><p class="eng-kicker">ActivaModular · Ingeniería · fase ${result.phase}</p><h2>Cargas del modelo · edición ${result.codeEdition}</h2><p>Autor del proyecto: <strong>Jesús Olguín · jesus.olguin</strong> · implementación asistida: ingeniero Astra el Evangelista</p></div><button type="button" class="btn btn--ghost" id="engineeringJsonBtn">Descargar detalle JSON</button></div>
     <div class="eng-chips"><span>Revisar</span><span>Supuestos (${result.assumptions.length})</span>${result.issues.length ? `<span>Datos a revisar (${result.issues.length})</span>` : ""}</div>
     <p class="eng-note eng-scope">Peso modelado parcial: ${formatForce(result.totals.total_N)}. Incluye la vivienda y la fundación por separado. No acredita resistencia ni estabilidad. El cálculo y los planos para construir requieren revisión y firma de un profesional matriculado.</p>
     ${loadResultsHtml(result)}
+    ${analysisResultsHtml(result, project)}
     ${extraLoadsHtml(project)}
     <div class="eng-totals"><div><span>Barras instaladas</span><strong>${formatForce(result.totals.members_N)}</strong></div><div><span>Paquetes y aberturas</span><strong>${formatForce(result.totals.surfaces_N)}</strong></div><div><span>Fundación</span><strong>${formatForce(result.totals.foundation_N)}</strong></div></div>
     <h3>Por nivel · sin fundación</h3><ul class="eng-levels">${result.levels.map((l) => `<li><strong>${esc(l.name)}</strong> ${formatForce(l.weight_N)}</li>`).join("")}</ul>
@@ -118,14 +119,25 @@ export function engineeringResultHtml(result, project) {
     <h3>Supuestos</h3><ul class="eng-list">${result.assumptions.map((a) => `<li><strong>${esc(a.scope)}:</strong> ${esc(a.message)}</li>`).join("")}</ul>
     ${result.issues.length ? `<h3>Datos y geometría a revisar</h3><ul class="eng-list">${result.issues.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>` : ""}
     <h3>Alcance pendiente</h3><ul class="eng-list">${result.notVerified.map((w) => `<li>${esc(w)}</li>`).join("")}</ul>
-    <p class="eng-note">Entradas resistentes guardadas, sin usar aún: acero ${formatStress(project.engineering.steel.Fy)}; hormigón ${formatStress(project.engineering.concrete.fc)}.</p>`;
+    <p class="eng-note">E=${n(project.engineering.steel.E/1e9)} GPa usado en el análisis. Resistencias aún sin verificar: acero ${formatStress(project.engineering.steel.Fy)}; hormigón ${formatStress(project.engineering.concrete.fc)}.</p>`;
 }
 
 /** Extracto imprimible de la fase base; no se titula memoria estructural completa. */
 export function engineeringPrintHtml(result, project) {
-  return `<section class="eng-print"><h2>Cargas preliminares · fase 1 · edición ${result.codeEdition} · motor ${esc(result.version)}</h2><p>ActivaModular · Jesús Olguín · jesus.olguin. Vivienda: ${formatForce(result.totals.superstructure_N)}. Fundación: ${formatForce(result.totals.foundation_N)}.</p>
+  return `<section class="eng-print"><h2>Cargas y análisis preliminar · fase ${result.phase} · edición ${result.codeEdition} · motor ${esc(result.version)}</h2><p>ActivaModular · Jesús Olguín · jesus.olguin · ingeniero Astra el Evangelista. Vivienda: ${formatForce(result.totals.superstructure_N)}. Fundación: ${formatForce(result.totals.foundation_N)}.</p>
     <p>Peso parcial. Resistencia, estabilidad y anclajes no verificados. Requiere revisión y firma profesional. Se usan ${result.assumptions.length} supuestos.</p>${groupsTable(result, project)}
-    ${loadResultsHtml(result)}<h3>Supuestos y datos pendientes</h3><ul>${[...result.assumptions.map((a) => a.message), ...result.issues].map((w) => `<li>${esc(w)}</li>`).join("")}</ul><h3>Alcance pendiente</h3><ul>${result.notVerified.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></section>`;
+    ${loadResultsHtml(result)}${analysisResultsHtml(result, project)}<h3>Supuestos y datos pendientes</h3><ul>${[...result.assumptions.map((a) => a.message), ...result.issues].map((w) => `<li>${esc(w)}</li>`).join("")}</ul><h3>Alcance pendiente</h3><ul>${result.notVerified.map((w) => `<li>${esc(w)}</li>`).join("")}</ul></section>`;
+}
+
+/** Reacciones por apoyo, derivas y gobernantes; no se presentan como fundaciones dimensionadas. */
+export function analysisResultsHtml(result, project) {
+  const a=result.analysis;if(!a)return "";
+  if(a.status!=="calculated")return `<section class="eng-analysis"><h3>Análisis sin resolver</h3><p class="eng-note eng-scope">${esc(a.scope)}</p><ul class="eng-list">${a.issues.map(s=>`<li>${esc(s)}</li>`).join("")}</ul></section>`;
+  return `<section class="eng-analysis"><h3>Análisis del pórtico · primer orden</h3><p class="eng-note">${a.model.nodes.length} nodos · ${a.model.bars.length} barras principales · ${a.model.ties.length} interfaces articuladas. ${esc(a.storage.kind)}. Equilibrio de fuerzas y momentos: ${a.combinationChecks.length} combinaciones; error relativo máximo ${n(a.equilibriumMax,14)} &lt; 10⁻⁶.</p>
+    <p class="eng-note eng-scope">${esc(a.scope)} Los máximos de la tabla son envolventes; pueden pertenecer a combinaciones distintas. Compresión positiva; tracción de anclaje cuando la reacción vertical es negativa. Fundación excluida del análisis.</p>
+    <div class="table-wrap"><table class="eng-table"><thead><tr><th>Apoyo (x, y) m</th><th>Compresión máxima</th><th>Tracción máxima de anclaje</th><th>Combinación de tracción</th></tr></thead><tbody>${a.reactionEnvelopes.map(r=>`<tr><td>(${n(r.point_m[0])}, ${n(r.point_m[1])})</td><td>${formatForce(Math.max(0,r.components[2].max))}</td><td>${formatForce(Math.max(0,-r.components[2].min))}</td><td><button class="eng-combination-link" type="button" data-analysis-combination="${esc(r.components[2].minCombination)}">${esc(r.components[2].minCombination)}</button></td></tr>`).join("")}</tbody></table></div>
+    <h4>Desplazamiento entre niveles · servicio</h4><ul class="eng-list">${a.drifts.map(d=>`<li><strong>${esc(project.levels[d.level].name)}:</strong> ${n(d.max_m*1000,2)} mm / límite ${n(d.limit_m*1000,2)} mm. <strong>${d.status==="fails_project_limit"?"No cumple el límite del proyecto":"Dentro del límite del proyecto"}</strong>. <button class="eng-combination-link" type="button" data-analysis-combination="${esc(d.combination)}">Ver combinación</button></li>`).join("")}</ul>
+    <p class="eng-note">Seleccioná Modelo analítico, Reacciones o Deformada bajo el 3D para revisar una combinación. El JSON completo incluye cada caso, ruta tributaria, diagrama recuperable y las envolventes con su posición. Las uniones y el segundo orden siguen pendientes.</p></section>`;
 }
 
 /** Selectores de uso por identidad de nivel; conserva los destinos al reordenar niveles. */

@@ -16,7 +16,8 @@ import { engineeringResultHtml } from "./panel.js";
 import { G0_m_s2, NToKgf, kNToTf, tfToKN, MPaToKgfCm2, kgfCm2ToMPa, formatForce } from "./units.js";
 
 const near = (actual, expected, tolerance = 1e-7) => assert.ok(Math.abs(actual - expected) <= tolerance, `${actual} ≠ ${expected}`);
-const calculate = (p) => runEngineering(p, generate(p));
+// Estos chequeos aíslan pesos/acciones; los benchmarks de análisis están en sus propios tests.
+const calculate = (p) => runEngineering(p, generate(p), { analyze:false });
 
 /** Identidades fijas para comparar todo el resultado, sin fecha ni aleatoriedad en el fixture. */
 export function fixedProject() {
@@ -248,11 +249,11 @@ test("interfaz escapa fuentes y nombres; muestra alcance, supuestos y resultado 
   assert.ok(!html.includes("APROBADO"));
 });
 
-test("regresión completa y determinista de fase 1 (JSON comprimido sin pérdida)", () => {
+test("regresión completa y determinista de fase 2 (JSON comprimido sin pérdida)", () => {
   const p = fixedProject();
-  const a = calculate(p);
-  assert.deepEqual(calculate(structuredClone(p)), a);
-  const fixture = JSON.parse(readFileSync(new URL("./fixtures/default-phase-1.json", import.meta.url), "utf8"));
+  const a = runEngineering(p, generate(p));
+  assert.deepEqual(runEngineering(structuredClone(p), generate(p)), a);
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/default-phase-2.json", import.meta.url), "utf8"));
   // Fallo corto antes del diff multimillonario. La compresión es sólo para el fixture, no para la PWA.
   assert.equal(createHash("sha256").update(JSON.stringify(a)).digest("hex"), fixture.sha256);
   const expected = JSON.parse(gunzipSync(Buffer.from(fixture.result_gzip_base64, "base64")).toString());

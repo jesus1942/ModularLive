@@ -9,12 +9,12 @@ import { STAIR_RULES } from "./data/stair-rules.js";
 import { GUARD } from "./exposed.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
 import { pointKey, wallDir, wallLength } from "./geometry.js";
-import { runEngineering } from "./engineering/engine.js";
+import { createEngineeringClient } from "./engineering/worker-client.js";
 import { engineeringInputsHtml, engineeringUsageHtml, engineeringPrintHtml, engineeringResultHtml, engineeringSummaryHtml } from "./engineering/panel.js";
 import { MATERIALS } from "./engineering/data/materials.js";
 import { LOCATIONS, locationWind_m_s } from "./engineering/data/locations.js";
 import { windCasePatches } from "./engineering/wind.js";
-import { formatPressure } from "./engineering/units.js";
+import { formatPressure, formatForce } from "./engineering/units.js";
 
 const PRICES_KEY = "modularlive_prices"; // compartido con la calculadora rápida
 const $ = (sel) => document.querySelector(sel);
@@ -23,6 +23,7 @@ const store = createStore();
 let gen = null;
 let bom = null;
 let engineering = null;
+let engineeringExtraOpen = false;
 
 // ---------- utilidades ----------
 const fmtNum = (v, d = 2) => Number(v).toLocaleString("es-AR", { maximumFractionDigits: d, minimumFractionDigits: 0 });
@@ -136,6 +137,17 @@ $("#frame3d").addEventListener("click", () => viewer?.frame());
 function renderWindView() {
   if (!engineering) return;
   const mode = $("#windViewMode").value;
+  const analytical=mode.startsWith("analysis-");
+  $("#analysisCaseField").hidden=!analytical;
+  $("#deformationScaleField").hidden=mode!=="analysis-deformed";
+  $("#analysisDetail").hidden=!analytical;
+  if(analytical) {
+    $("#windCaseField").hidden=true;viewer?.setWindPatches([]);viewer?.setPointLoads([]);
+    if(engineering.analysis?.status!=="calculated") {viewer?.setAnalysisView(null,null,"none");$("#windLegend").textContent="Análisis sin resolver: revisá los apoyos y las advertencias en Ingeniería.";$("#analysisDetail").textContent="";return;}
+    $("#windLegend").textContent="Recuperando combinación…";
+    engineeringClient.detail($("#analysisCombinationSelect").value);return;
+  }
+  viewer?.setAnalysisView(null,null,"none");
   const select = $("#windCaseSelect");
   const previous = select.value;
   select.innerHTML = engineering.wind.cases.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.label)} · ${escapeHtml(c.id)}</option>`).join("");
@@ -161,18 +173,55 @@ function renderWindView() {
 }
 $("#windViewMode").addEventListener("change", renderWindView);
 $("#windCaseSelect").addEventListener("change", renderWindView);
+$("#analysisCombinationSelect").addEventListener("change", renderWindView);
+$("#deformationScale").addEventListener("change", renderWindView);
+
+/** Publica sólo la revisión vigente; ningún resultado anterior permanece tras editar. */
+const engineeringClient=createEngineeringClient({
+  onResult(result) {
+    engineering=result;
+    $("#engineeringSummary").innerHTML=engineeringSummaryHtml(engineering);
+    $("#engineeringPanel").innerHTML=engineeringResultHtml(engineering,store.project);
+    if($("#extraLoadsEditor"))$("#extraLoadsEditor").open=engineeringExtraOpen;
+    const select=$("#analysisCombinationSelect"),previous=select.value;
+    select.innerHTML=engineering.analysis?.status==="calculated"?engineering.combinations.map(c=>`<option value="${escapeHtml(c.id)}">${escapeHtml(c.state)} · ${escapeHtml(c.formula || "Sin acciones variables")}</option>`).join(""):"";
+    if([...select.options].some(op=>op.value===previous))select.value=previous;
+    else select.value=engineering.combinations.find(c=>c.state==="ELS"&&c.template==="SD")?.id??select.options[0]?.value??"";
+    select.disabled=engineering.analysis?.status!=="calculated";
+    $("#windCaseSelect").disabled=false;
+    renderWindView();
+  },
+  onDetail(response,id) {
+    if(!engineering||!$("#windViewMode").value.startsWith("analysis-")||id!==$("#analysisCombinationSelect").value)return;
+    const mode=$("#windViewMode").value,amplification=Number($("#deformationScale").value);
+    viewer?.setAnalysisView(engineering.analysis.model,response,mode,{amplification});
+    const combination=engineering.combinations.find(c=>c.id===id);
+    $("#windLegend").textContent=mode==="analysis-deformed"?`Deformada elástica amplificada ×${amplification}. Modelo original en gris. Sin segundo orden ni verificación de resistencia.`:mode==="analysis-reactions"?"Flechas de reacción sobre la estructura; hacia abajo indica tracción del anclaje. No incluyen peso ni capacidad de la fundación.":"Ejes analíticos de la estructura principal. Los puntos entre módulos comparten traslación y permiten giros independientes.";
+    $("#analysisDetail").innerHTML=response?`<p class="eng-note"><strong>${escapeHtml(combination.state)} · ${escapeHtml(combination.formula||"Sin acciones")}</strong></p><p class="eng-note">Carga sobre el pórtico: X ${formatForce(response.applied.force_N[0])}; Y ${formatForce(response.applied.force_N[1])}; Z ${formatForce(response.applied.force_N[2])}. Error de equilibrio ${response.equilibrium.relativeError.toExponential(2)}.</p>`:"<p>Análisis sin resolver.</p>";
+  },
+  onExport(json){download(`${slug(store.project.name)}-ingenieria-completa.json`,json,"application/json");},
+  onError(message) {
+    engineering=null;viewer?.setAnalysisView(null,null,"none");
+    $("#engineeringSummary").innerHTML='<h3>Ingeniería</h3><p>El cálculo no pudo completarse.</p>';
+    $("#engineeringPanel").innerHTML=`<p class="eng-note eng-scope">${escapeHtml(message)}. Editá el proyecto para reintentar; no hay resultados vigentes.</p>`;
+  }
+});
+window.addEventListener("pagehide",()=>engineeringClient.dispose());
 
 // ---------- regeneración ----------
 let lastLevelCount = null;
 function regenerate() {
   const project = store.project;
+  if($("#extraLoadsEditor"))engineeringExtraOpen=$("#extraLoadsEditor").open;
   if (editor.level > project.levels.length - 1) editor.setLevel(project.levels.length - 1);
   gen = generate(project);
   bom = computeBom(project, gen);
-  engineering = runEngineering(project, gen);
+  engineering = null;
   editor.setGeneration(gen);
   viewer?.build(gen);
-  renderWindView();
+  viewer?.setWindPatches([]);viewer?.setPointLoads([]);viewer?.setAnalysisView(null,null,"none");
+  $("#windCaseSelect").disabled=true;$("#analysisCombinationSelect").disabled=true;
+  $("#analysisDetail").textContent="";$("#windLegend").textContent="Calculando…";
   if (lastLevelCount !== null && lastLevelCount !== project.levels.length) viewer?.frame();
   lastLevelCount = project.levels.length;
   viewer?.highlightWall(editor.getSelection()?.wallId ?? null);
@@ -181,10 +230,9 @@ function regenerate() {
   renderCuts();
   renderSelection();
   renderLevelBar();
-  $("#engineeringSummary").innerHTML = engineeringSummaryHtml(engineering);
-  const openExtra = $("#extraLoadsEditor")?.open;
-  $("#engineeringPanel").innerHTML = engineeringResultHtml(engineering, project);
-  if (openExtra) $("#extraLoadsEditor").open = true;
+  $("#engineeringSummary").innerHTML = '<h3>Ingeniería</h3><p role="status">Calculando…</p>';
+  $("#engineeringPanel").innerHTML = '<p class="eng-note" role="status">Calculando cargas y estructura… Podés seguir editando la planta.</p>';
+  engineeringClient.schedule(project,gen);
   syncSettingsForm();
   $("#undoBtn").disabled = !store.canUndo();
   $("#redoBtn").disabled = !store.canRedo();
@@ -803,6 +851,8 @@ $("#engineeringPanel").addEventListener("change", (e) => {
   });
 });
 $("#engineeringPanel").addEventListener("click", (e) => {
+  const caseId=e.target.closest("[data-analysis-combination]")?.dataset.analysisCombination;
+  if(caseId){$("#analysisCombinationSelect").value=caseId;$("#windViewMode").value="analysis-reactions";renderWindView();$("#viewer").scrollIntoView({behavior:"smooth",block:"center"});return;}
   if (e.target.closest("[data-extra-add]")) {
     const lv = gen.levels[activeLevel()], footprint = lv.footprint;
     if (!footprint) { toast("Cerrá el contorno del nivel para ubicar un equipo."); return; }
@@ -814,7 +864,7 @@ $("#engineeringPanel").addEventListener("click", (e) => {
   const id = e.target.closest("[data-material-reset]")?.dataset.materialReset;
   if (MATERIALS[id]) store.update((p) => { delete p.engineering.materialOverrides[id]; });
   if (e.target.closest("#engineeringJsonBtn")) {
-    download(`${slug(store.project.name)}-cargas-ingenieria.json`, JSON.stringify({ project: store.project, result: engineering }, null, 2), "application/json");
+    if(!engineeringClient.export())toast("Esperá a que termine el cálculo vigente.");
   }
 });
 
@@ -881,6 +931,7 @@ $("#cutsCsvBtn").addEventListener("click", () => {
 });
 
 $("#printBtn").addEventListener("click", () => {
+  if(!engineering){toast("Esperá a que termine el cálculo vigente para imprimir.");return;}
   const img = viewer ? `<img src="${viewer.snapshot()}" alt="Vista 3D" />` : "";
   const plan = $("#planSvg").outerHTML;
   const p = store.project;

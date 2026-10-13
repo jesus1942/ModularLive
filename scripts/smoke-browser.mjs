@@ -1,7 +1,7 @@
 // Prueba optativa de interfaz. Playwright se instala solo en el entorno de CI, no en la PWA.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
 import { chromium } from "playwright";
 
 const root = new URL("../", import.meta.url).pathname;
@@ -46,6 +46,19 @@ try {
   assert.match(await page.locator("#engineeringSummary").innerText(), /38,91 kN/);
   assert.equal(await page.locator("#viewer canvas").count(), 1);
   assert.equal(await page.locator(".viewer__error").count(), 0);
+  assert.match(await page.locator("#engineeringSummary").innerText(), /Equilibrio verificado en 2661 combinaciones/);
+  assert.match(await page.locator("#engineeringSummary").innerText(), /No cumple el límite de desplazamiento/);
+  await page.locator('#windViewMode').selectOption('analysis-model');
+  await page.waitForFunction(()=>document.querySelector('#windLegend').textContent.includes('Ejes analíticos'));
+  await page.locator('#windViewMode').selectOption('analysis-reactions');
+  await page.waitForFunction(()=>document.querySelector('#windLegend').textContent.includes('Flechas de reacción'));
+  assert.match(await page.locator('#analysisDetail').innerText(), /38,91 kN/);
+  await page.screenshot({path:`${output}desktop-reactions.png`});
+  await page.locator('#windViewMode').selectOption('analysis-deformed');
+  await page.waitForFunction(()=>document.querySelector('#windLegend').textContent.includes('×10'));
+  await page.screenshot({path:`${output}desktop-deformed.png`});
+  await page.locator('#windViewMode').selectOption('model');
+  checks.push('Fase 2: modelo, reacciones y deformada; 2661 combinaciones con equilibrio y deriva insuficiente explícita.');
   await page.getByRole("button", { name: "Ingeniería", exact: true }).click();
   await page.locator('input[data-material="durlock"][data-material-field="value"]').fill("12");
   await page.locator('input[data-material="durlock"][data-material-field="value"]').press("Tab");
@@ -103,6 +116,16 @@ try {
   await page.getByRole("button", { name: "Ingeniería", exact: true }).click();
   await page.getByRole("heading", { name: "Cargas del modelo · edición 2025", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${output}desktop.png` });
+  // La exportación incluye el detalle que permanece en el Worker, sin truncarlo al resumen de interfaz.
+  const downloadPromise=page.waitForEvent('download');
+  await page.locator('#engineeringJsonBtn').click();
+  const exported=await downloadPromise,exportPath=`${output}engineering-export.json`;
+  await exported.saveAs(exportPath);
+  const full=JSON.parse(await readFile(exportPath,'utf8'));
+  assert.equal(full.result.phase,2);assert.equal(full.result.analysis.caseResponses.length,136);
+  assert.equal(full.result.analysis.tributary.cases.length,136);assert.equal(full.result.analysis.combinationChecks.length,2661);
+  await unlink(exportPath);
+  checks.push('JSON completo descargado desde el Worker: casos, rutas y 2661 comprobaciones presentes.');
   checks.push("Escritorio: 3D y presiones/torsión/C&R, cargas puntuales, edición 2005/2025, usos, pesos con fuente, guardado y deshacer/rehacer.");
 
   const mobile = await openPage({ width: 390, height: 844 });
@@ -115,6 +138,11 @@ try {
   await mobile.page.getByRole("button", { name: "Ingeniería", exact: true }).click();
   await mobile.page.getByRole("heading", { name: "Cargas del modelo · edición 2025", exact: true }).scrollIntoViewIfNeeded();
   await mobile.page.screenshot({ path: `${output}mobile-engineering.png` });
+  await verifyWidth(mobile.page);
+  await mobile.page.locator('#windViewMode').selectOption('analysis-deformed');
+  await mobile.page.waitForFunction(()=>document.querySelector('#windLegend').textContent.includes('×10'));
+  await mobile.page.locator('#viewer').scrollIntoViewIfNeeded();
+  await mobile.page.screenshot({path:`${output}mobile-deformed.png`});
   await verifyWidth(mobile.page);
   checks.push("Celular 390 × 844: diseñador y detalle de Ingeniería sin desborde horizontal.");
 
