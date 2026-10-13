@@ -19,6 +19,22 @@ const near = (actual, expected, tolerance = 1e-7) => assert.ok(Math.abs(actual -
 // Estos chequeos aíslan pesos/acciones; los benchmarks de análisis están en sus propios tests.
 const calculate = (p) => runEngineering(p, generate(p), { analyze:false });
 
+/** Compara el snapshot completo con tolerancia numérica, sin ocultar cambios de datos/estructura. */
+function compareSnapshot(actual, expected, path = "$", differences = []) {
+  if (typeof actual === "number" && typeof expected === "number") {
+    // Node/V8 pueden diferir unas ULP en Math.hypot/operaciones encadenadas.
+    // 10⁻⁷ absoluto + 10⁻¹⁰ relativo es mucho menor que el 0,5% de los benchmarks.
+    if (!Number.isFinite(actual) || Math.abs(actual-expected)>1e-7+1e-10*Math.abs(expected)) differences.push(`${path}: ${actual} ≠ ${expected}`);
+  } else if (Array.isArray(actual) && Array.isArray(expected)) {
+    if(actual.length!==expected.length)differences.push(`${path}: longitudes distintas`);
+    else actual.forEach((value,i)=>compareSnapshot(value,expected[i],`${path}[${i}]`,differences));
+  } else if (actual && expected && typeof actual==="object" && typeof expected==="object") {
+    if(JSON.stringify(Object.keys(actual))!==JSON.stringify(Object.keys(expected)))differences.push(`${path}: claves/orden distintos`);
+    else for(const key of Object.keys(actual))compareSnapshot(actual[key],expected[key],`${path}.${key}`,differences);
+  } else if(actual!==expected)differences.push(`${path}: ${actual} ≠ ${expected}`);
+  return differences;
+}
+
 /** Identidades fijas para comparar todo el resultado, sin fecha ni aleatoriedad en el fixture. */
 export function fixedProject() {
   const p = createDefaultProject();
@@ -254,8 +270,10 @@ test("regresión completa y determinista de fase 2 (JSON comprimido sin pérdida
   const a = runEngineering(p, generate(p));
   assert.deepEqual(runEngineering(structuredClone(p), generate(p)), a);
   const fixture = JSON.parse(readFileSync(new URL("./fixtures/default-phase-2.json", import.meta.url), "utf8"));
-  // Fallo corto antes del diff multimillonario. La compresión es sólo para el fixture, no para la PWA.
-  assert.equal(createHash("sha256").update(JSON.stringify(a)).digest("hex"), fixture.sha256);
   const expected = JSON.parse(gunzipSync(Buffer.from(fixture.result_gzip_base64, "base64")).toString());
-  assert.deepEqual(JSON.parse(JSON.stringify(a)), expected);
+  // El SHA asegura integridad del archivo de referencia; la comparación física
+  // completa admite redondeo de punto flotante entre Node 22 de CI y Node 24 local.
+  assert.equal(createHash("sha256").update(JSON.stringify(expected)).digest("hex"),fixture.sha256);
+  const differences=compareSnapshot(JSON.parse(JSON.stringify(a)),expected);
+  assert.equal(differences.length,0,differences.slice(0,12).join("\n"));
 });
