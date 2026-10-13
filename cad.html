@@ -57,6 +57,15 @@
         <button type="button" data-tool="stair" title="Escalera (S)">
           <svg viewBox="0 0 24 24"><path d="M3 20h5v-4h4v-4h4V8h5" /></svg><span>Escalera</span>
         </button>
+        <button type="button" data-tool="floor" title="Editar piso (F)" aria-label="Piso">
+          <svg viewBox="0 0 24 24"><path d="M3 14l9-5 9 5-9 5zM3 18l9 5 9-5" /></svg><span>Piso</span>
+        </button>
+        <button type="button" data-tool="roof" title="Editar techo (T)" aria-label="Techo">
+          <svg viewBox="0 0 24 24"><path d="M3 12l9-8 9 8M5 11v9h14v-9" /></svg><span>Techo</span>
+        </button>
+        <button type="button" data-tool="balcony" title="Colocar balcón (B)" aria-label="Balcón">
+          <svg viewBox="0 0 24 24"><path d="M3 7v13h18V7M3 13h18M7 13v7M12 13v7M17 13v7" /></svg><span>Balcón</span>
+        </button>
       </div>
       <div class="toolbar__group toolbar__group--levels" aria-label="Niveles">
         <span class="toolbar__label">Nivel</span>
@@ -118,7 +127,7 @@
             <label class="check"><input type="checkbox" data-path="settings.interiorWallInsulation" /> Aislación en tabiques</label>
           </div>
         </details>
-        <details open>
+        <details open id="floorSettings">
           <summary>Fundación y piso</summary>
           <div class="fields">
             <label>Tipo de fundación
@@ -132,7 +141,7 @@
             <label id="floorSpacingField">Separación de viguetas (m)<input type="number" step="0.05" min="0.3" max="1" data-path="settings.floorSpacing" /></label>
           </div>
         </details>
-        <details open>
+        <details open id="roofSettings">
           <summary>Techo</summary>
           <div class="fields">
             <label>Tipo

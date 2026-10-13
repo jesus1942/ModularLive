@@ -16,10 +16,15 @@ Tiene dos herramientas:
 3. Ubicá **puertas y ventanas** tocando sobre un muro. Con **Seleccionar** se arrastran a lo largo del muro y se editan sus medidas en el panel derecho. En las puertas se elige de qué lado va la bisagra y hacia qué lado abre (botones del panel, o doble clic / doble toque sobre la puerta para recorrer las cuatro opciones).
 4. Para **apilar niveles**, tocá `+` en la barra de niveles: se agrega un nivel encima con el contorno del de abajo, que se puede editar libremente. El nivel inferior se ve punteado como referencia y los extremos se enganchan a él. Cada nivel tiene su propia altura.
 5. Para subir de nivel, en la planta baja tocá **Escalera** (`S`): un toque donde arranca y otro hacia donde sube. Se calcula sola: cantidad de alzadas, alzada, pedada y regla de Blondel, tramos y descansos (recta, en L o en U), con reglas municipales típicas (a confirmar con el código local) o de accesibilidad (Decreto 914/97). Arrastrala para moverla: si queda cerca de un muro se pega a su cara. En el nivel de arriba aparece el hueco.
-6. Elegí fundación, techo, revestimientos y separaciones en el panel izquierdo.
-7. Revisá el 3D por capas (y por niveles), la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
+6. Cada **contorno cerrado** recibe su piso y techo: podés dibujar varias estructuras en el mismo nivel. **Piso** (`F`) o **Techo** (`T`), seguido de un toque dentro de la estructura, abre sus controles y muestra la capa. El techo también está visible al abrir el diseño. La fundación, el tipo de techo y las separaciones se ajustan para el proyecto.
+7. Para colocar un **Balcón** (`B`), tocá un muro exterior de una estructura cerrada; editá ancho, profundidad, apoyo y baranda en el panel derecho. También funciona el botón **+ Balcón** del muro seleccionado.
+8. Revisá el 3D por capas (y por niveles), la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
 
-Atajos: `V` seleccionar, `R` rectángulo, `E` muro, `I` tabique, `P` puerta, `N` ventana, `Ctrl+Z` / `Ctrl+Y`, `Esc` termina o cancela, `Supr` borra lo seleccionado. `Shift` libera el modo ortogonal.
+Los rectángulos pegados o superpuestos se resuelven como unión de contornos: un borde compartido genera un solo tabique y las áreas superpuestas se computan una vez. Los módulos separados tienen pisos, cubiertas y fundaciones propios, sin cerrar el espacio entre ellos. Se conservan el diseño original, las aberturas que caben en cada tramo y el historial. Los contornos abiertos siguen visibles y explican qué falta cerrar.
+
+El peso y el cómputo incluyen todas las estructuras. Para **varios edificios independientes en un mismo nivel**, el análisis global, el viento y el sismo se indican pendientes de cálculo por edificio; no se reutiliza la primera huella para afirmar que todos están verificados. La nieve balanceada se calcula sobre cada cubierta; los demás patrones quedan pendientes de cálculo por edificio.
+
+Atajos: `V` seleccionar, `R` rectángulo, `E` muro, `I` tabique, `P` puerta, `N` ventana, `S` escalera, `F` piso, `T` techo, `B` balcón, `Ctrl+Z` / `Ctrl+Y`, `Esc` termina o cancela, `Supr` borra lo seleccionado. `Shift` libera el modo ortogonal.
 
 ### Cómo calcula
 

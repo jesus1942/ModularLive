@@ -12,6 +12,7 @@ export const PROJECT_AUTHOR = "Jesús Olguín · jesus.olguin";
 
 /** Ejecuta los chequeos efectivamente implementados sobre la generación que usa el 3D y el BOM. */
 export function runEngineering(project, generation, { analyze = true } = {}) {
+  if (generation.effectiveWalls) project = { ...project, levels: project.levels.map((level, i) => ({ ...level, walls: generation.effectiveWalls[i] })) };
   const e = normalizeEngineering(project.engineering, project.levels);
   const dead = computeDeadLoad({ ...project, engineering: e }, generation);
   const live = computeLiveLoads(project, generation, e, dead);

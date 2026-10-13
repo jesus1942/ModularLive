@@ -55,6 +55,9 @@ export function bbox(points) {
 }
 
 export function pointInPolygon(point, poly) {
+  // Varios contornos cerrados: pertenecer a cualquiera de ellos alcanza.
+  if (Array.isArray(poly?.[0])) return poly.some(loop => pointInPolygon(point, loop));
+  if (!poly?.length) return false;
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i, i += 1) {
     const a = poly[i];
@@ -217,8 +220,9 @@ export function clipPolygonHalfPlane(poly, axis, c, keep) {
  * Exacto para polígonos ortogonales; aproximado (por celdas) si hay lados inclinados.
  */
 export function differenceRects(A, B) {
-  const xs = [...new Set([...A, ...(B ?? [])].map((p) => round(p.x, 4)))].sort((a, b) => a - b);
-  const ys = [...new Set([...A, ...(B ?? [])].map((p) => round(p.y, 4)))].sort((a, b) => a - b);
+  const upperPoints = Array.isArray(B?.[0]) ? B.flat() : B ?? [];
+  const xs = [...new Set([...A, ...upperPoints].map((p) => round(p.x, 4)))].sort((a, b) => a - b);
+  const ys = [...new Set([...A, ...upperPoints].map((p) => round(p.y, 4)))].sort((a, b) => a - b);
   // tiras por fila
   const rows = [];
   for (let j = 0; j + 1 < ys.length; j += 1) {
@@ -259,7 +263,7 @@ export function differenceRects(A, B) {
 }
 
 export const isOrthogonal = (poly) =>
-  poly.every((p, i) => {
+  Array.isArray(poly?.[0]) ? poly.every(isOrthogonal) : poly.every((p, i) => {
     const q = poly[(i + 1) % poly.length];
     return Math.abs(p.x - q.x) < 1e-6 || Math.abs(p.y - q.y) < 1e-6;
   });
