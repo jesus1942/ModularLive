@@ -66,7 +66,10 @@ try {
   await page.locator('input[data-material="durlock"][data-material-field="source"]').fill("Ficha de prueba, placa elegida");
   await page.locator('input[data-material="durlock"][data-material-field="source"]').press("Tab");
   await page.locator('input[data-material="durlock"][data-material-field="confirmed"]').check();
-  await page.waitForFunction(() => document.querySelector('input[data-material="durlock"][data-material-field="confirmed"]').checked);
+  await page.waitForFunction(() => {
+    const input=document.querySelector('input[data-material="durlock"][data-material-field="confirmed"]');
+    return input?.checked && input.closest('.eng-material')?.textContent.includes('Dato aportado');
+  });
   const material = page.locator(".eng-material").filter({ has: page.locator('input[data-material="durlock"]') });
   assert.match(await material.innerText(), /Dato aportado/);
   await page.reload();

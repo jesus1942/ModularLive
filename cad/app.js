@@ -137,6 +137,7 @@ $("#frame3d").addEventListener("click", () => viewer?.frame());
 function renderWindView() {
   if (!engineering) return;
   const mode = $("#windViewMode").value;
+  $("#windTooltip").textContent="";
   const analytical=mode.startsWith("analysis-");
   $("#analysisCaseField").hidden=!analytical;
   $("#deformationScaleField").hidden=mode!=="analysis-deformed";
@@ -144,6 +145,7 @@ function renderWindView() {
   if(analytical) {
     $("#windCaseField").hidden=true;viewer?.setWindPatches([]);viewer?.setPointLoads([]);
     if(engineering.analysis?.status!=="calculated") {viewer?.setAnalysisView(null,null,"none");$("#windLegend").textContent="Análisis sin resolver: revisá los apoyos y las advertencias en Ingeniería.";$("#analysisDetail").textContent="";return;}
+    viewer?.setAnalysisView(null,null,"none");$("#analysisDetail").textContent="";
     $("#windLegend").textContent="Recuperando combinación…";
     engineeringClient.detail($("#analysisCombinationSelect").value);return;
   }
