@@ -13,6 +13,7 @@ import {
 } from "./geometry.js";
 import { FOUNDATIONS, ROOF_TYPES, SYSTEMS } from "./catalog.js";
 import { defaultEngineering, normalizeEngineering } from "./engineering/settings.js";
+import { EXPOSED_DEFAULTS } from "./exposed.js";
 
 let idCounter = 0;
 export const newId = (prefix) => `${prefix}${Date.now().toString(36)}${(idCounter += 1).toString(36)}`;
@@ -44,7 +45,37 @@ export function createRectangle(x0, y0, width, depth) {
 export const levelName = (index) => (index === 0 ? "Planta baja" : `Nivel ${index}`);
 
 export function createLevel(index, walls = [], height = DEFAULT_SETTINGS.wallHeight) {
-  return { id: newId("l"), name: levelName(index), height, walls, stairs: [] };
+  return { id: newId("l"), name: levelName(index), height, walls, stairs: [], exposed: { ...EXPOSED_DEFAULTS }, balconies: [] };
+}
+
+const clamp = (v, lo, hi, fallback) => (Number.isFinite(Number(v)) ? Math.min(Math.max(Number(v), lo), hi) : fallback);
+
+/** Qué se hace con la parte del nivel que queda sin otro nivel encima. */
+export function normalizeExposed(raw) {
+  const e = raw && typeof raw === "object" ? raw : {};
+  return {
+    kind: e.kind === "terraza" ? "terraza" : "techo",
+    slope: clamp(e.slope, 2, 60, EXPOSED_DEFAULTS.slope),
+    overhang: clamp(e.overhang, 0, 1.2, EXPOSED_DEFAULTS.overhang),
+    railing: e.railing !== false
+  };
+}
+
+export const BALCONY_DEFAULTS = { width: 2.4, depth: 1.2, support: "voladizo", railing: true };
+
+function normalizeBalconies(list, walls) {
+  const ids = new Set(walls.map((w) => w.id));
+  return (Array.isArray(list) ? list : [])
+    .filter((b) => b && ids.has(b.wallId))
+    .map((b) => ({
+      id: b.id ?? newId("b"),
+      wallId: b.wallId,
+      offset: clamp(b.offset, 0, 100, 0),
+      width: clamp(b.width, 0.6, 30, BALCONY_DEFAULTS.width),
+      depth: clamp(b.depth, 0.6, 3, BALCONY_DEFAULTS.depth),
+      support: b.support === "columnas" ? "columnas" : "voladizo",
+      railing: b.railing !== false
+    }));
 }
 
 export const STAIR_DEFAULTS = { kind: "recta", dir: 0, width: 0.9, turn: "derecha", ruleSet: "municipal", tread: "chapa" };
@@ -149,13 +180,18 @@ export function normalizeProject(raw) {
   const rawLevels = Array.isArray(raw?.levels) && raw.levels.length
     ? raw.levels
     : [{ walls: raw?.walls ?? base.levels[0].walls, height: raw?.settings?.wallHeight }];
-  project.levels = rawLevels.map((level, index) => ({
-    id: level.id ?? newId("l"),
-    name: level.name || levelName(index),
-    height: Math.min(Math.max(Number(level.height) || project.settings.wallHeight, 2), 4.5),
-    walls: normalizeWalls(level.walls ?? []),
-    stairs: normalizeStairs(level.stairs)
-  }));
+  project.levels = rawLevels.map((level, index) => {
+    const walls = normalizeWalls(level.walls ?? []);
+    return {
+      id: level.id ?? newId("l"),
+      name: level.name || levelName(index),
+      height: Math.min(Math.max(Number(level.height) || project.settings.wallHeight, 2), 4.5),
+      walls,
+      stairs: normalizeStairs(level.stairs),
+      exposed: normalizeExposed(level.exposed),
+      balconies: normalizeBalconies(level.balconies, walls)
+    };
+  });
   project.engineering = normalizeEngineering(raw?.engineering, project.levels);
   delete project.walls;
   return project;

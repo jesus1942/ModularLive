@@ -29,6 +29,17 @@ import { PROFILES, SYSTEMS } from "./catalog.js";
 import { doorLeaf, findFootprint, validateOpenings } from "./model.js";
 import { layoutStair, stairChecks } from "./stairs.js";
 import { alongWall, buildStair, railAlong } from "./stair-build.js";
+import { EXPOSED_DEFAULTS, FLASHING_UPSTAND, exposedParts } from "./exposed.js";
+import {
+  MIN_ROOF_SLOPE,
+  buildBalcony,
+  buildExposedRoof,
+  buildTerrace,
+  exposedPlane,
+  exposedWallIntervals,
+  openingsOnUpperEdges,
+  wallTopProfile
+} from "./outdoor-build.js";
 import { memberKey } from "./engineering/keys.js";
 import { surfaceLayers } from "./engineering/data/materials.js";
 
@@ -106,7 +117,18 @@ export function generate(project) {
     anchorBolts: 0,
     chemicalAnchors: 0,
     columns: 0,
-    levels: project.levels.length
+    levels: project.levels.length,
+    // intemperie: partes descubiertas, terrazas, balcones y volados
+    flashing_m: 0, // babeta de techo contra el nivel de arriba
+    exposedRoofArea: 0, // techos a un agua sobre partes descubiertas (incluido en roofArea)
+    terraceArea: 0,
+    terraceFlashing_m: 0, // membrana levantada contra el nivel de arriba
+    dripEdge_m: 0, // goterón en bordes libres de terrazas y balcones
+    drains: 0,
+    balconyArea: 0,
+    balconyGussets: 0,
+    balconyPosts: 0,
+    soffitArea: 0 // cierre inferior de volados
   };
   const wallSummaries = [];
   const levelsOut = [];
@@ -207,6 +229,15 @@ export function generate(project) {
             : (p) => zTop + slope * (uOf(p) - umin);
       }
     }
+
+    // ---------- Parte descubierta de este nivel (el de arriba es más chico, está girado o corrido) ----------
+    const exposedCfg = { ...EXPOSED_DEFAULTS, ...(level.exposed ?? {}) };
+    const exposedItems = !isTop && footprint
+      ? exposedParts(footprint, above).map((part) => ({
+        part,
+        plane: exposedPlane(part, exposedCfg, { zTop, upFloorTop: levelZ[li + 1].floorTop })
+      }))
+      : [];
 
     const openingSpans = (wall) => wall.openings.map((o) => [o.offset, o.offset + o.width]);
     const insideOpening = (wall, sPos, margin = 0) => openingSpans(wall).some(([a, b]) => sPos > a - margin && sPos < b + margin);
@@ -422,12 +453,44 @@ export function generate(project) {
         }
       }
 
+      // Bajo una parte descubierta el muro sube hasta el techo a un agua (cierra el entretecho)
+      // o hasta el piso terminado de la terraza (frentín).
+      const exposedIvs = footprint && !isTop && exposedItems.length ? exposedWallIntervals(wall, exposedItems, zTop) : [];
+      const profile = exposedIvs.length ? wallTopProfile(L, exposedIvs, zTop) : null;
+      if (profile) {
+        const seen = new Set();
+        exposedIvs.filter((iv) => iv.kind === "techo").forEach((iv) => {
+          let maxFill = 0;
+          distributePositions(iv.s1, iv.s2, s.wallSpacing).forEach((sp) => {
+            const c = Math.min(Math.max(sp, stud.b / 2), L - stud.b / 2);
+            const fill = iv.z(c) - zTop;
+            maxFill = Math.max(maxFill, fill);
+            if (fill <= MIN_FILL || seen.has(round(c, 4))) return;
+            seen.add(round(c, 4));
+            const p = pointOnWall(wall, c);
+            addMember("stud", "Relleno de hastial", "estructura", [p.x, p.y, zTop], [p.x, p.y, zTop + fill], fill, ex);
+          });
+          if (maxFill > MIN_FILL) {
+            const pa = pointOnWall(wall, iv.s1);
+            const pb = pointOnWall(wall, iv.s2);
+            const za = iv.z(iv.s1) - track.b / 2;
+            const zb = iv.z(iv.s2) - track.b / 2;
+            addMember("track", "Relleno de hastial", "estructura", [pa.x, pa.y, za], [pb.x, pb.y, zb], Math.hypot(iv.s2 - iv.s1, zb - za), ex);
+          }
+        });
+        for (let i = 0; i + 1 < profile.length; i += 1) {
+          fillArea += ((profile[i].z + profile[i + 1].z) / 2 - zTop) * (profile[i + 1].s - profile[i].s);
+        }
+      }
+
       const sign = outwardSign(wall);
       const extPt = wallFrameAt(wall, sign * 0.065);
       const intPt = wallFrameAt(wall, -sign * 0.065);
       const bps = topBreakpoints(wall);
       const topZ = (sp) => Math.max(roofUnderside(pointOnWall(wall, sp)), zTop);
-      const extOutline = [extPt(0, elev), extPt(L, elev), ...[...bps].reverse().map((sp) => extPt(sp, topZ(sp)))];
+      const extOutline = profile
+        ? [extPt(0, elev), extPt(L, elev), ...[...profile].reverse().map((pt) => extPt(pt.s, pt.z))]
+        : [extPt(0, elev), extPt(L, elev), ...[...bps].reverse().map((sp) => extPt(sp, topZ(sp)))];
       const extArea = area3D(extOutline) - openingArea(wall);
       surfaces.push({ ...lv, wallId: wall.id, layer: "cerramientos", material: "exterior", points: extOutline, holes: openingHoles(wall, extPt), area: extArea });
       const intArea = L * height - openingArea(wall);
@@ -531,9 +594,22 @@ export function generate(project) {
         totals.footprintArea = area;
         totals.perimeter = polygonPerimeter(footprint);
       }
+      let overhangArea = 0;
       if (li > 0 && footprints[li - 1]) {
-        const overhang = differenceRects(footprint, footprints[li - 1]).reduce((sum, r) => sum + (r.x1 - r.x0) * (r.y1 - r.y0), 0);
-        if (overhang > 0.01) warnings.push(`${level.name}: ${round(overhang, 2)} m² quedan en voladizo sobre el nivel inferior; verificá la estructura.`);
+        const overRects = differenceRects(footprint, footprints[li - 1]);
+        overhangArea = overRects.reduce((sum, r) => sum + (r.x1 - r.x0) * (r.y1 - r.y0), 0);
+        if (overhangArea > 0.01) {
+          warnings.push(`${level.name}: ${round(overhangArea, 2)} m² quedan en voladizo sobre el nivel inferior; verificá la estructura.`);
+          // cierre inferior del volado: el piso queda a la intemperie por debajo
+          const zs = elev - 0.005;
+          overRects.forEach((r, k) => {
+            surfaces.push({
+              ...lv, layer: "cerramientos", material: "volado", face: `volado:${k}`,
+              points: [[r.x0, r.y0, zs], [r.x1, r.y0, zs], [r.x1, r.y1, zs], [r.x0, r.y1, zs]], holes: [], area: (r.x1 - r.x0) * (r.y1 - r.y0)
+            });
+          });
+          totals.soffitArea += overhangArea;
+        }
       }
 
       if (elevated) {
@@ -637,7 +713,8 @@ export function generate(project) {
         else totals.mezzanineDeckArea += deckArea;
         surfaces.push({
           ...lv, layer: "piso", material: "piso", points: footprint.map((p) => [p.x, p.y, floorTop]),
-          holes: holes.map((loop) => loop.map((p) => [p.x, p.y, floorTop])), area: deckArea
+          holes: holes.map((loop) => loop.map((p) => [p.x, p.y, floorTop])), area: deckArea,
+          ...(overhangArea > 0.01 ? { overhangArea_m2: overhangArea } : {})
         });
       } else {
         surfaces.push({ ...lv, layer: "piso", material: "platea", points: footprint.map((p) => [p.x, p.y, floorTop + 0.002]), holes: [], area });
@@ -649,11 +726,18 @@ export function generate(project) {
       const ceilingPolygons = isTop ? [footprint] : differenceRects(footprint, above).map((r) => [
         { x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }
       ]);
+      // bajo una terraza las viguetas bajan para dejar el escalón de la puerta: el cielorraso baja con ellas
+      const ceilingDrop = (cb) => {
+        const c = { x: (cb.minX + cb.maxX) / 2, y: (cb.minY + cb.maxY) / 2 };
+        const item = exposedItems.find(({ part, plane }) => plane.kind === "terraza" && part.rects.some((r) => c.x > r.x0 && c.x < r.x1 && c.y > r.y0 && c.y < r.y1));
+        return item ? Math.max(0, zTop - ring.h - (item.plane.joistTop - joist.h)) : 0;
+      };
       ceilingPolygons.forEach((polygon) => {
         const cb = bbox(polygon);
         const axis = cb.maxX - cb.minX <= cb.maxY - cb.minY ? "x" : "y";
         const scan = axis === "x" ? "y" : "x";
-        const z = zTop - ring.h - ceiling.h / 2;
+        const drop = ceilingDrop(cb);
+        const z = zTop - ring.h - ceiling.h / 2 - drop;
         const cmin = scan === "x" ? cb.minX : cb.minY;
         const cmax = scan === "x" ? cb.maxX : cb.maxY;
         distributePositions(cmin + ceiling.b / 2, cmax - ceiling.b / 2, 0.4).forEach((c) => {
@@ -668,7 +752,7 @@ export function generate(project) {
           addMember("ceilingTrack", "Marco de cielorraso", "cielorraso", [p.x, p.y, z], [q.x, q.y, z], Math.hypot(q.x - p.x, q.y - p.y), lv);
         });
         const a = Math.abs(polygonArea(polygon));
-        const boardZ = zTop - ring.h - ceiling.h - 0.0125;
+        const boardZ = zTop - ring.h - ceiling.h - 0.0125 - drop;
         surfaces.push({ ...lv, layer: "cielorraso", material: "cielorraso", points: polygon.map((p) => [p.x, p.y, boardZ]), holes: [], area: a });
         totals.ceilingArea += a;
       });
@@ -725,47 +809,80 @@ export function generate(project) {
         totals.roofPlanArea += Math.abs(polygonArea(roofOutline));
         totals.roofCoveredArea += area;
       } else {
-        // parte de este nivel que queda descubierta por el nivel de arriba: cubierta plana
+        // parte de este nivel que queda descubierta por el nivel de arriba: techo a un agua o terraza
         if (!isOrthogonal(footprint) || !isOrthogonal(above)) warnings.push(`${level.name}: la cubierta descubierta se aproxima porque hay muros no ortogonales.`);
-        const zR = zTop + rafter.h / 2;
-        differenceRects(footprint, above).forEach((r) => {
-          const alongX = r.x1 - r.x0 <= r.y1 - r.y0; // cabios en la luz corta
-          const outside = (x, y) => !pointInPolygon({ x, y }, footprint);
-          const nextToUpper = (x, y) => pointInPolygon({ x, y }, above);
-          const trim = ring.b / 2;
-          if (alongX) {
-            const t0 = nextToUpper(r.x0 - 0.05, (r.y0 + r.y1) / 2) ? trim : 0;
-            const t1 = nextToUpper(r.x1 + 0.05, (r.y0 + r.y1) / 2) ? trim : 0;
-            distributePositions(r.y0 + rafter.b / 2, r.y1 - rafter.b / 2, s.roofSpacing).forEach((y) => {
-              addMember("rafter", "Cabios", "techo", [r.x0 + t0, y, zR], [r.x1 - t1, y, zR], r.x1 - r.x0 - t0 - t1, lv);
-            });
-            [r.y0, r.y1].forEach((y) => {
-              const probe = y === r.y0 ? y - 0.05 : y + 0.05;
-              if (outside((r.x0 + r.x1) / 2, probe)) addMember("roofEdge", "Cenefas", "techo", [r.x0, y, zR], [r.x1, y, zR], r.x1 - r.x0, lv);
-            });
+        const upLevel = project.levels[li + 1];
+        const up = levelZ[li + 1];
+        const ctx = {
+          add: addMember,
+          addRail: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "balcones", a3, b3, cut, extra),
+          prof, s, lv, surfaces, totals, cfg: exposedCfg, above, footprint, ring, placed: new Set()
+        };
+        const fmt = (v) => String(round(v, 2)).replace(".", ",");
+        exposedItems.forEach(({ part, plane }, pi) => {
+          if (plane.kind === "terraza") {
+            const r = buildTerrace(part, pi, plane, ctx);
+            if (r.maxSpan > system.defaults.maxJoistSpan) warnings.push(`${level.name}: las viguetas de la terraza salvan ${fmt(r.maxSpan)} m: verificá la sección o agregá una viga con apoyo.`);
           } else {
-            const t0 = nextToUpper((r.x0 + r.x1) / 2, r.y0 - 0.05) ? trim : 0;
-            const t1 = nextToUpper((r.x0 + r.x1) / 2, r.y1 + 0.05) ? trim : 0;
-            distributePositions(r.x0 + rafter.b / 2, r.x1 - rafter.b / 2, s.roofSpacing).forEach((x) => {
-              addMember("rafter", "Cabios", "techo", [x, r.y0 + t0, zR], [x, r.y1 - t1, zR], r.y1 - r.y0 - t0 - t1, lv);
-            });
-            [r.x0, r.x1].forEach((x) => {
-              const probe = x === r.x0 ? x - 0.05 : x + 0.05;
-              if (outside(probe, (r.y0 + r.y1) / 2)) addMember("roofEdge", "Cenefas", "techo", [x, r.y0, zR], [x, r.y1, zR], r.y1 - r.y0, lv);
-            });
+            buildExposedRoof(part, pi, plane, ctx);
           }
-          const a = (r.x1 - r.x0) * (r.y1 - r.y0);
-          const z = zTop + rafter.h;
-          surfaces.push({ ...lv, layer: "cubierta", material: "cubierta", points: [[r.x0, r.y0, z], [r.x1, r.y0, z], [r.x1, r.y1, z], [r.x0, r.y1, z]], holes: [], area: a, coveredArea_m2: a });
-          totals.roofArea += a;
-          totals.roofPlanArea += a;
-          totals.roofCoveredArea += a;
+          if (part.drainsToUpper) warnings.push(`${level.name}: una parte descubierta desagua contra ${upLevel.name}; lleva canaleta y embudo en ese encuentro.`);
         });
+        if (exposedItems.some(({ part }) => part.split)) {
+          warnings.push(`${level.name}: la parte descubierta rodea a ${upLevel.name}; se resolvió en paños que desaguan cada uno hacia afuera. Revisá los encuentros entre paños.`);
+        }
+        const minSlope = MIN_ROOF_SLOPE[s.roofCladding];
+        if (exposedCfg.kind === "techo" && minSlope && exposedCfg.slope < minSlope) {
+          warnings.push(`${level.name}: el techo de la parte descubierta tiene ${fmt(exposedCfg.slope)} % y la cubierta elegida pide al menos ${minSlope} % (dato de fabricantes, confirmar ficha).`);
+        }
+        const openings = exposedItems.flatMap(({ part, plane }, pi) => openingsOnUpperEdges(part, upLevel.walls).map((f) => ({ ...f, plane, pi })));
+        if (exposedCfg.kind === "techo") {
+          openings.forEach(({ o, p1, p2, plane }) => {
+            if (o.kind === "door") {
+              warnings.push(`${upLevel.name}: una puerta da al techo de ${level.name}. Si se sale por ahí, elegí «Terraza transitable» para la parte descubierta.`);
+              return;
+            }
+            const roofTop = Math.max(plane.under(p1), plane.under(p2)) + rafter.h + FLASHING_UPSTAND;
+            if (roofTop > up.floorTop + o.sill - 1e-6) {
+              warnings.push(`${upLevel.name}: el techo de ${level.name} con su babeta llega a ${fmt(roofTop - up.floorTop)} m sobre el piso y tapa una ventana (antepecho ${fmt(o.sill)} m). Bajá la pendiente o subí el antepecho.`);
+            }
+          });
+        } else {
+          const closed = exposedItems.filter((_, pi) => !openings.some((f) => f.pi === pi && f.o.kind === "door")).length;
+          if (closed) {
+            warnings.push(`${level.name}: ${closed === exposedItems.length ? "la terraza no tiene" : `${closed} de las ${exposedItems.length} terrazas no tienen`} puerta desde ${upLevel.name}. Agregá una puerta en un muro que dé a la terraza.`);
+          }
+        }
       }
     }
 
+    // ---------- Balcones colgados de los muros exteriores de este nivel ----------
+    const balconyStats = [];
+    (level.balconies ?? []).forEach((bal, bi) => {
+      const st = buildBalcony(bal, bi, {
+        add: addMember,
+        addRail: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "balcones", a3, b3, cut, extra),
+        prof, lv, surfaces, solids, totals, footprint, floorTop, walls: level.walls, ring, placed: new Set(),
+        lowerFootprints: footprints.slice(0, li), lowerName: li > 0 ? project.levels[li - 1].name : "",
+        warn: (text) => warnings.push(`Balcón de ${level.name}: ${text}`)
+      });
+      if (!st) {
+        warnings.push(`${level.name}: un balcón no tiene muro exterior con contorno cerrado y no se calcula.`);
+        return;
+      }
+      totals.balconyGussets += st.gussets;
+      totals.balconyPosts += st.posts;
+      balconyStats.push(st);
+    });
+
     totals.columns += columnNodes.size;
-    levelsOut.push({ index: li, name: level.name, elev, floorTop, zTop, footprint, spanAxis, columns: [...columnNodes.values()], holes: holesByLevel[li] ?? [] });
+    levelsOut.push({
+      index: li, name: level.name, elev, floorTop, zTop, footprint, spanAxis, columns: [...columnNodes.values()], holes: holesByLevel[li] ?? [],
+      ...(exposedItems.length ? {
+        exposed: exposedItems.map(({ part, plane }) => ({ outline: part.outline, d: part.d, area: part.area, run: part.run, kind: plane.kind, slope: plane.slope, split: part.split }))
+      } : {}),
+      ...(balconyStats.length ? { balconies: balconyStats } : {})
+    });
     lowerColumns = columnNodes;
     base = zTop;
   });
@@ -861,7 +978,8 @@ export function generate(project) {
     const center = sf.points[0]?.slice(0, 2).map((v) => round(v, 6)).join(",") ?? "empty";
     sf.key = `L${project.levels[sf.level].id}:surface:${sf.material}:${sf.wallId ?? "grid"}:${sf.openingId ?? sf.face ?? center}`;
     sf.packageLabel = sf.material === "piso" ? (sf.level === 0 ? "Piso" : "Entrepiso")
-      : sf.material === "cubierta" ? "Techo" : sf.material === "cielorraso" ? "Cielorraso" : sf.material === "escalon" ? "Escaleras" : sf.layer === "aberturas" ? "Aberturas" : "Muros";
+      : sf.material === "cubierta" ? (sf.access === "terraza" ? "Terrazas" : "Techo") : sf.material === "cielorraso" ? "Cielorraso" : sf.material === "escalon" ? "Escaleras"
+        : sf.material === "balcon" ? "Balcones" : sf.material === "volado" ? "Volados" : sf.layer === "aberturas" ? "Aberturas" : "Muros";
     sf.layers = surfaceLayers(project, sf);
   });
   solids.forEach((solid) => {

@@ -172,6 +172,8 @@ test("acumulación: cota Fig9 y triángulo cortado en borde mantiene presión di
   const d = snowDrift({ upperFetch_m: 3, lowerFetch_m: 1, pg_Pa: 300, balanced_Pa: 300, step_m: 2.6 });
   near(d.hd_m, .45); near(d.width_m, 1.8); near(d.peak_Pa, .45 * (.426 * 300 + 2200));
   const p = createDefaultProject(); p.levels.push(createLevel(1, createRectangle(0, 0, 5, 3)));
+  // Cubierta baja casi plana y sin alero, para comparar con la cota de Fig9 en 1 m de ancho.
+  p.levels[0].exposed = { kind: "techo", slope: 2, overhang: 0 };
   const s = computeSnow(p, generate(p), settings(p));
   const extra = s.cases.find((a) => a.id.startsWith("S:drift:")).entries.at(-1);
   near(extra.force_N[2], -3 * d.peak_Pa * (1 - 1 / (2 * 1.8)));

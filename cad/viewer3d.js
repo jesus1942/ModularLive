@@ -10,7 +10,8 @@ export const LAYERS = [
   { id: "cubierta", label: "Cubierta" },
   { id: "cielorraso", label: "Cielorraso" },
   { id: "aberturas", label: "Aberturas" },
-  { id: "escaleras", label: "Escaleras" }
+  { id: "escaleras", label: "Escaleras" },
+  { id: "balcones", label: "Balcones y terrazas" }
 ];
 
 const ROLE_COLORS = {
@@ -30,19 +31,23 @@ const ROLE_COLORS = {
   landingPost: 0x2b2b2b,
   handrail: 0x111111,
   railPost: 0x333333,
-  baluster: 0x555555
+  baluster: 0x555555,
+  balconyBeam: 0x2b2b2b
 };
 
 const SURFACE_STYLES = {
   exterior: { color: 0xc9d3cd, opacity: 0.92 },
   interior: { color: 0xf2eee5, opacity: 0.95 },
   cubierta: { color: 0x8c979c, opacity: 0.9 },
-  cielorraso: { color: 0xe8e8e8, opacity: .95 },
+  cielorraso: { color: 0xe8e8e8, opacity: 1 },
   piso: { color: 0xc8a676, opacity: 1 },
   platea: { color: 0xb9b4a8, opacity: 1 },
   vidrio: { color: 0x9cc7e0, opacity: 0.45 },
   puerta: { color: 0x8b5a3c, opacity: 1 },
-  escalon: { color: 0x9a9a9a, opacity: 1 }
+  escalon: { color: 0x9a9a9a, opacity: 1 },
+  terraza: { color: 0xa98b62, opacity: 1 },
+  balcon: { color: 0xa98b62, opacity: 1 },
+  volado: { color: 0xc9d3cd, opacity: 0.92 }
 };
 
 const toV = ([x, y, z]) => new THREE.Vector3(x, z, y);
@@ -193,8 +198,9 @@ export function createViewer(container) {
     geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
     geometry.setIndex(faces.flat());
     geometry.computeVertexNormals();
-    const style = SURFACE_STYLES[surface.material] ?? SURFACE_STYLES.exterior;
-    const material = getMaterial(`s-${surface.material}`, () =>
+    const styleId = surface.style ?? surface.material;
+    const style = SURFACE_STYLES[styleId] ?? SURFACE_STYLES.exterior;
+    const material = getMaterial(`s-${styleId}`, () =>
       new THREE.MeshLambertMaterial({
         color: style.color,
         transparent: style.opacity < 1,
@@ -242,7 +248,7 @@ export function createViewer(container) {
       const mesh = orientedBox(m.a, m.b, m.w, m.h, m.nrm);
       mesh.material = getMaterial(`r-${m.role}`, () => new THREE.MeshLambertMaterial({ color: ROLE_COLORS[m.role] ?? 0x777777 }));
       mesh.userData = { member: m, level: m.level ?? 0 };
-      (m.layer === "cielorraso" ? layerGroups.cielorraso : m.layer === "escaleras" ? layerGroups.escaleras : layerGroups.estructura).add(mesh);
+      (layerGroups[{ cielorraso: "cielorraso", escaleras: "escaleras", balcones: "balcones" }[m.layer] ?? "estructura"]).add(mesh);
       memberMeshes.push(mesh);
     });
     gen.surfaces.forEach((surface) => {

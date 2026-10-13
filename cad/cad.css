@@ -197,6 +197,16 @@ button, input, select { font: inherit; color: inherit; }
 .plan .stair-arrow, .plan .stair-start { fill: #111; }
 .plan .stair-label { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; fill: #111; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: rgba(255, 255, 255, 0.9); stroke-width: 3px; }
 .plan .stair-hole { fill: rgba(0, 0, 0, 0.06); stroke: #111; stroke-width: 1.2; stroke-dasharray: 7 4; }
+.plan .exposed { fill: rgba(0, 0, 0, 0.05); stroke: #111; stroke-width: 1; stroke-dasharray: 2 3; cursor: pointer; }
+.plan .exposed--terraza { fill: rgba(0, 0, 0, 0.09); }
+.plan .exposed.is-selected { stroke-width: 2.5; stroke-dasharray: none; }
+.plan .exposed--ghost { fill: none; stroke: #999; pointer-events: none; }
+.plan .exposed-arrow { stroke: #111; stroke-width: 1.3; }
+.plan .exposed-head { fill: #111; }
+.plan .exposed-label { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; fill: #111; text-anchor: middle; dominant-baseline: middle; paint-order: stroke; stroke: rgba(255, 255, 255, 0.9); stroke-width: 3px; }
+.plan .balcony { fill: rgba(255, 255, 255, 0.8); stroke: #111; stroke-width: 1.5; cursor: grab; }
+.plan .balcony.is-selected { stroke-width: 3; }
+.plan .balcony-rail { fill: none; stroke: #111; stroke-width: 3; stroke-dasharray: 1 3; stroke-linecap: round; pointer-events: none; }
 .plan[data-tool="stair"] { cursor: crosshair; }
 .plan .opening-swing { fill: none; stroke: #214034; stroke-width: 1; stroke-dasharray: 3 3; }
 .plan .column { fill: #fff; stroke: #214034; stroke-width: 1.5; }
@@ -463,3 +473,8 @@ kbd { font-family: inherit; font-size: 0.75rem; border: 1px solid var(--line); b
 .checks li small { color: var(--muted); flex-basis: 100%; padding-left: 1.4em; }
 .checks li.bad { font-weight: 600; }
 .checks li.bad span { color: #b00020; }
+
+/* parte descubierta: techo a un agua o terraza */
+.exposed-box { margin: 14px 0 4px; padding-top: 12px; border-top: 2px solid #111; }
+.exposed-box h4 { margin: 0 0 4px; }
+.exposed-box .fields { margin: 8px 0; }

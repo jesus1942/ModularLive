@@ -293,7 +293,59 @@ Esto es lo que más le falta hoy al software. Hay que tratar cada caso:
 3. **Nivel desplazado o girado**: cargas excéntricas, flexión en columnas y torsión del conjunto. Se resuelve igual con el pórtico 3D; la clave es que el modelo analítico genere los nodos donde corresponde.
 4. **Fundación**: siempre se recalcula con las reacciones de **todos** los niveles (sección 10). Nunca se dimensiona por área en planta.
 
-### 6.5 Distribución de columnas (`column-layout.js`)
+### 6.5 Partes descubiertas, terrazas, balcones y volados (ya en el generador)
+
+El generador ya produce estas piezas (módulos `cad/exposed.js` y `cad/outdoor-build.js`). Vos las cargás, las bajás y las verificás; no las vuelvas a generar.
+
+**Qué hay en el modelo**
+
+- `level.exposed = { kind: "techo" | "terraza", slope (%), overhang (m), railing }`: qué se hace con la parte del nivel que el de arriba no tapa. `exposedParts()` la parte en regiones conexas y elige hacia dónde corre el agua para que **nunca vaya contra el nivel de arriba**. Si la región rodea al nivel de arriba (anillo), se parte en paños (`split: true`) y cada uno desagua hacia afuera.
+- **Techo a un agua** (`kind: "techo"`):
+  - cabios (`rafter`, grupo "Cabios") en el sentido de la pendiente;
+  - viga de apoyo contra el muro de arriba (`rafter`, "Vigas de apoyo de cubierta"), abulonada a sus columnas;
+  - "Vigas de borde entre paños" donde la región se partió;
+  - cenefas en alero y borde alto.
+  - El muro de abajo sube hasta la cara inferior de los cabios ("Relleno de hastial"): eso cierra el entretecho.
+  - La superficie `cubierta` lleva `roofType: "una_agua"`, `slope_percent` y `exposed: true`.
+- **Terraza** (`kind: "terraza"`):
+  - viguetas (`floorJoist`, "Viguetas de terraza") en la luz menor;
+  - vigas de borde contra el nivel de arriba;
+  - piso con 1,5 % hacia afuera, 2 cm bajo el piso interior (el cielorraso de abajo baja si hace falta).
+  - La superficie es `material: "cubierta"` con `access: "terraza"`, `roofType: "plano"` y capas fenólico 18 + membrana asfáltica + deck.
+  - Baranda de 1,00 m con paso ≤ 0,10 m en los bordes libres (capa "balcones"); son valores a confirmar con el código local.
+- **Balcón** (`level.balconies[] = { wallId, offset, width, depth, support: "voladizo" | "columnas", railing }`):
+  - vigas `balconyBeam` (tubo 100×50×3,2 cada ≤ 0,60 m) perpendiculares al muro y viga de frente;
+  - en voladizo, soldadas al bastidor inferior con dos cartelas por viga;
+  - con columnas, `landingPost` al terreno con un dado de 40 × 40 × 60 cm por columna (sólido en `solids`, hormigón sumado a `totals`).
+  - Superficie `material: "balcon"`, 4 cm bajo el piso interior.
+- **Volado**: donde un nivel sobresale del de abajo, superficie `material: "volado"` (cierre inferior: OSB + revestimiento + aislación de piso). La superficie `piso` de ese nivel trae `overhangArea_m2`, y su placa de yeso de cielorraso se descuenta ahí.
+
+**Ganchos que ya están en tu módulo** (revisalos):
+
+- `surfaceLayers` tiene los casos `cubierta` con `access: "terraza"`, `balcon` y `volado`, y el descuento de yeso con `overhangArea_m2`.
+- `computeLiveLoads` suma L de terraza (3 kPa, o 5 kPa si `roofAccess` es "terraza_publica") y L de balcón (3 kPa hasta 10 m², 5 kPa si es más grande).
+- El test de acumulación de nieve de la fase 1 ahora fija la cubierta baja casi plana y sin alero (`exposed: { slope: 2, overhang: 0 }`), para conservar la cota de Fig. 9 en 1 m de ancho.
+
+**Lo que falta y te toca**
+
+1. **Fase 1 (corrección)**:
+   - Viento y nieve de cubiertas bajas usan hoy `"plano"` y pendiente 0 para todo nivel que no es el último. Usá `sf.roofType` y `sf.slope_percent` de cada superficie: un techo a un agua al 20 % no es plano para Cp ni para Cs.
+   - Nieve que **desliza** de la cubierta de arriba sobre el techo bajo (CIRSOC 104).
+2. **Fase 2**: tributarias de cabios y de la viga de apoyo contra el nivel de arriba, que es una carga lineal sobre sus columnas, excéntrica respecto del muro. Terraza: viguetas con L de terraza y peso del paquete húmedo si el usuario cambia a carpeta y cerámico.
+3. **Fase 3**:
+   - Balcón en voladizo: momento y corte en el empotramiento, flecha en la punta (L/180 de la luz del voladizo, a confirmar) y, sobre todo, **torsión en el bastidor inferior** que recibe las vigas.
+   - Si no verifica, proponer columnas o una contraviga anclada dentro del entrepiso.
+   - Barandas: carga horizontal en el pasamanos y en los parantes según CIRSOC 101-2025, con el valor a confirmar en la tabla vigente; verificar parante, soldadura y anclaje.
+4. **Fase 4**:
+   - Cartelas y soldaduras de balcones.
+   - Placa base de columnas de balcón: compresión y levantamiento por viento sobre el balcón.
+   - Anclaje de la viga de apoyo del techo bajo.
+5. **Fase 5**: dados de columnas de balcón con la reacción real, en lugar del 40 × 40 × 60 fijo.
+6. **Fase 10**:
+   - Transmitancia K del volado (piso sobre exterior) y de la terraza (techo transitable).
+   - Condensación en el paquete de terraza con membrana: barrera de vapor del lado caliente.
+
+### 6.6 Distribución de columnas (`column-layout.js`)
 
 - **Candidatos**: esquinas, encuentros en T, bordes de aberturas (a ± una media sección), esquinas y columnas de niveles superiores, y una grilla modular sobre los muros (paso de 0,60 m).
 - **Objetivo**: minimizar el costo total, que es peso de acero × precio más volumen de hormigón y excavación × precio (usar los precios que cargó el usuario si existen, y si no pesos relativos). Restricciones: todas las verificaciones cumplen, separación ≤ máxima, ninguna columna dentro de un vano, y continuidad vertical preferida (penalizar transferencias).

@@ -6,6 +6,7 @@ import { bomToCsv, computeBom, cutListToCsv } from "./bom.js";
 import { copyContour, createDefaultProject, createLevel, defaultSwing, doorLeaf, levelName, newId } from "./model.js";
 import { STAIR_KINDS, STAIR_TREADS } from "./stairs.js";
 import { STAIR_RULES } from "./data/stair-rules.js";
+import { GUARD } from "./exposed.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
 import { pointKey, wallDir, wallLength } from "./geometry.js";
 import { runEngineering } from "./engineering/engine.js";
@@ -26,6 +27,7 @@ let engineering = null;
 // ---------- utilidades ----------
 const fmtNum = (v, d = 2) => Number(v).toLocaleString("es-AR", { maximumFractionDigits: d, minimumFractionDigits: 0 });
 const fmtMoney = (v) => Number(v).toLocaleString("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
+const opt = (value, label, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`;
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 let toastTimer;
@@ -321,6 +323,18 @@ function renderSelection() {
       return;
     }
   }
+  if (sel?.type === "balcony") {
+    const bal = (level.balconies ?? []).find((x) => x.id === sel.balconyId);
+    if (bal) {
+      renderBalconyPanel(panel, bal, li);
+      return;
+    }
+  }
+  if (sel?.type === "exposed" && gen?.levels?.[li]?.exposed) {
+    panel.innerHTML = `<h3>${escapeHtml(level.name)} <span class="muted">parte descubierta</span></h3>${exposedHtml(li)}`;
+    wireExposed(panel, li);
+    return;
+  }
   const wall = sel && level.walls.find((w) => w.id === sel.wallId);
   if (!sel || !wall) {
     const counts = level.walls.reduce((acc, w) => ((acc[w.type] += 1), acc), { exterior: 0, interior: 0 });
@@ -334,18 +348,22 @@ function renderSelection() {
         ${li > 0 ? '<button type="button" class="btn btn--ghost" data-action="copy-contour">Copiar contorno de abajo</button>' : ""}
         ${project.levels.length > 1 ? '<button type="button" class="btn btn--danger" data-action="delete-level">Eliminar nivel</button>' : ""}
       </div>
+      ${exposedHtml(li)}
       <ul class="shortcuts">
         <li><kbd>R</kbd> rectángulo · <kbd>E</kbd> muro · <kbd>I</kbd> tabique</li>
         <li><kbd>P</kbd> puerta · <kbd>N</kbd> ventana · <kbd>V</kbd> seleccionar</li>
         <li>Doble clic en una puerta cambia hacia dónde abre</li>
+        <li>Balcón: tocá un muro exterior y <em>+ Balcón</em></li>
         <li>Mientras dibujás, escribí el largo y <kbd>Enter</kbd></li>
       </ul>`;
     panel.querySelector('[data-action="add-level"]').addEventListener("click", addLevelAbove);
+    wireExposed(panel, li);
     panel.querySelector('[data-action="add-stair"]')?.addEventListener("click", () => editor.setTool("stair"));
     panel.querySelector('[data-action="copy-contour"]')?.addEventListener("click", () => {
       if (level.walls.length && !confirm(`¿Reemplazar los muros de ${level.name} por el contorno del nivel de abajo?`)) return;
       store.update((p) => {
         p.levels[li].walls = copyContour(p.levels[li - 1].walls);
+        p.levels[li].balconies = []; // colgaban de muros que ya no existen
       });
     });
     panel.querySelector('[data-action="delete-level"]')?.addEventListener("click", () => {
@@ -420,6 +438,7 @@ function renderSelection() {
       <div class="row-actions">
         <button type="button" class="btn btn--ghost" data-action="add-door">+ Puerta</button>
         <button type="button" class="btn btn--ghost" data-action="add-window">+ Ventana</button>
+        ${wall.type === "exterior" ? '<button type="button" class="btn btn--ghost" data-action="add-balcony">+ Balcón</button>' : ""}
         <button type="button" class="btn btn--danger" data-action="delete">Eliminar muro</button>
       </div>`;
     panel.querySelector('[data-w="type"]').addEventListener("change", (e) => {
@@ -461,7 +480,104 @@ function renderSelection() {
     };
     panel.querySelector('[data-action="add-door"]').addEventListener("click", () => addOpening("door"));
     panel.querySelector('[data-action="add-window"]').addEventListener("click", () => addOpening("window"));
+    panel.querySelector('[data-action="add-balcony"]')?.addEventListener("click", () => {
+      if (!gen?.levels?.[li]?.footprint) {
+        toast("Cerrá el contorno exterior del nivel antes de colgar un balcón.");
+        return;
+      }
+      const width = Math.round(Math.min(2.4, Math.max(L - 0.4, 0.6)) * 100) / 100;
+      const door = wall.openings.find((o) => o.kind === "door");
+      const center = door ? door.offset + door.width / 2 : L / 2;
+      const offset = Math.round(Math.max(0, Math.min(L - width, center - width / 2)) * 1000) / 1000;
+      const id = newId("b");
+      store.update((p) => {
+        const lv = levelOf(p);
+        lv.balconies = [...(lv.balconies ?? []), { id, wallId: wall.id, offset, width, depth: 1.2, support: "voladizo", railing: true }];
+      });
+      editor.setSelection({ type: "balcony", balconyId: id });
+      if (!door) toast("Balcón agregado. Falta una puerta en este muro para salir a él.");
+    });
   }
+  panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
+}
+
+/** Qué se hace con la parte del nivel que el de arriba no tapa: techo a un agua o terraza. */
+function exposedHtml(li) {
+  const info = gen?.levels?.[li]?.exposed;
+  const project = store.project;
+  if (!info?.length || !project.levels[li + 1]) return "";
+  const cfg = project.levels[li].exposed;
+  const up = project.levels[li + 1].name;
+  const area = info.reduce((sum, part) => sum + part.area, 0);
+  const isRoof = cfg.kind !== "terraza";
+  return `
+    <div class="exposed-box">
+      <h4>Parte descubierta · ${fmtNum(area)} m²</h4>
+      <p class="muted small">Es lo que ${escapeHtml(up)} no tapa. Donde ${escapeHtml(up)} apoya, el techo de este nivel es su entrepiso.</p>
+      <div class="fields fields--2">
+        <label>Se cubre con<select data-ex="kind">${opt("techo", "Techo a un agua", cfg.kind)}${opt("terraza", "Terraza transitable", cfg.kind)}</select></label>
+        ${isRoof
+          ? `<label>Pendiente (%)<input type="number" min="2" max="60" step="1" data-ex="slope" value="${cfg.slope}" /></label>
+             <label>Alero (m)<input type="number" min="0" max="1.2" step="0.05" data-ex="overhang" value="${cfg.overhang}" /></label>`
+          : `<label class="check"><input type="checkbox" data-ex="railing" ${cfg.railing ? "checked" : ""} /> Baranda de ${GUARD.height.toFixed(2).replace(".", ",")} m en los bordes libres</label>`}
+      </div>
+      <p class="muted small">${isRoof
+        ? "El agua corre hacia afuera, nunca contra el nivel de arriba. Los muros de abajo suben hasta el techo y cierran el entretecho; contra el nivel de arriba lleva babeta."
+        : `Deck sobre membrana con 1,5 % hacia afuera y 2 cm por debajo del piso interior. Necesita una puerta desde ${escapeHtml(up)}.`}</p>
+    </div>`;
+}
+
+function wireExposed(panel, li) {
+  panel.querySelectorAll("[data-ex]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const key = el.dataset.ex;
+      if (el.type === "number" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(Number(el.value)))) {
+        toast(key === "slope" ? "La pendiente va de 2 a 60 %." : "El alero va de 0 a 1,20 m.");
+        el.value = store.project.levels[li].exposed[key];
+        return;
+      }
+      store.update((p) => {
+        p.levels[li].exposed = { ...p.levels[li].exposed, [key]: el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value };
+      });
+    })
+  );
+}
+
+/** Panel de un balcón colgado de un muro exterior. */
+function renderBalconyPanel(panel, bal, li) {
+  const level = levelOf(store.project);
+  const info = gen?.levels?.[li]?.balconies?.find((b) => b.id === bal.id);
+  const wall = level.walls.find((w) => w.id === bal.wallId);
+  const index = level.walls.indexOf(wall) + 1;
+  panel.innerHTML = `
+    <h3>Balcón <span class="muted">en muro ${index}</span></h3>
+    <p class="stair-sum"><strong>${fmtNum(bal.width)} × ${fmtNum(bal.depth)} m</strong> · ${fmtNum(bal.width * bal.depth)} m² · piso 4 cm bajo el interior${info ? `<br>${info.cantilevers} vigas ${bal.support === "voladizo" ? "en voladizo soldadas al bastidor" : `y ${info.posts} columnas con dado`}` : ""}</p>
+    <div class="fields fields--2">
+      <label>Ancho (m)<input type="number" min="0.6" max="30" step="0.05" data-bal="width" value="${bal.width}" /></label>
+      <label>Profundidad libre (m)<input type="number" min="0.6" max="3" step="0.05" data-bal="depth" value="${bal.depth}" /></label>
+      <label>Desde el inicio del muro (m)<input type="number" min="0" max="100" step="0.05" data-bal="offset" value="${bal.offset.toFixed(2)}" /></label>
+      <label>Apoyo<select data-bal="support">${opt("voladizo", "En voladizo", bal.support)}${opt("columnas", "Con columnas al terreno", bal.support)}</select></label>
+      <label class="check"><input type="checkbox" data-bal="railing" ${bal.railing ? "checked" : ""} /> Baranda de ${GUARD.height.toFixed(2).replace(".", ",")} m</label>
+    </div>
+    <div class="row-actions"><button type="button" class="btn btn--danger" data-action="delete">Eliminar balcón</button></div>
+    ${info?.warnings?.length ? `<ul class="warnings">${info.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>` : ""}
+    <p class="muted small">Arrastralo para correrlo a lo largo del muro. Voladizo recomendado hasta 1,20 m; más profundo, con columnas. ${escapeHtml(GUARD.source)}</p>`;
+  panel.querySelectorAll("[data-bal]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const key = el.dataset.bal;
+      if (el.type === "number" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(Number(el.value)))) {
+        toast("Ingresá una medida válida dentro del rango indicado.");
+        el.value = bal[key];
+        return;
+      }
+      store.update((p) => {
+        const target = (levelOf(p).balconies ?? []).find((b) => b.id === bal.id);
+        if (!target) return;
+        target[key] = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
+        if (key === "depth" && target.depth > 1.2 && target.support === "voladizo") toast("Más de 1,20 m en voladizo: conviene apoyarlo en columnas.");
+      });
+    })
+  );
   panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
 }
 
