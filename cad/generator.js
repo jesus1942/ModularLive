@@ -44,6 +44,30 @@ import { memberKey } from "./engineering/keys.js";
 import { surfaceLayers } from "./engineering/data/materials.js";
 
 const DECK_THICKNESS = 0.018;
+
+/** ¿El punto está sobre el borde del polígono (a menos de tol)? */
+function onPolygonEdge(p, poly, tol = 1e-3) {
+  return poly.some((a, i) => {
+    const b = poly[(i + 1) % poly.length];
+    const dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy;
+    const t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
+    return Math.hypot(p.x - a.x - dx * t, p.y - a.y - dy * t) < tol;
+  });
+}
+
+/** Un punto del interior de un contorno ortogonal (no un vértice, que puede caer justo en un borde). */
+function loopInnerPoint(loop) {
+  for (let i = 0; i < loop.length; i += 1) {
+    const p = loop[i], q = loop[(i + 1) % loop.length];
+    const m = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+    const L = Math.hypot(q.x - p.x, q.y - p.y) || 1;
+    for (const k of [0.05, -0.05]) {
+      const c = { x: m.x - ((q.y - p.y) / L) * k, y: m.y + ((q.x - p.x) / L) * k };
+      if (pointInPolygon(c, loop)) return c;
+    }
+  }
+  return loop[0];
+}
 const MIN_FILL = 0.15; // relleno de hastial por debajo de esto se resuelve con calces
 const DOOR_AJAR = (25 * Math.PI) / 180; // apertura con que se dibuja la hoja en 3D
 
@@ -148,7 +172,8 @@ export function generate(project) {
     balconyArea: 0,
     balconyGussets: 0,
     balconyPosts: 0,
-    soffitArea: 0 // cierre inferior de volados
+    soffitArea: 0, // cierre inferior de volados
+    voidArea: 0 // vacíos de doble altura en entrepisos
   };
   const wallSummaries = [];
   const levelsOut = [];
@@ -211,6 +236,24 @@ export function generate(project) {
       lay.checks.filter((c) => !c.ok).forEach((c) => warnings.push(`Escalera de ${level.name}: no cumple «${c.label}» (${c.detail}).`));
     });
   });
+  // Vacíos de doble altura: el entrepiso no lleva piso ahí (loft con altillo)
+  const voidAreaByLevel = project.levels.map(() => 0);
+  project.levels.forEach((level, li) => {
+    if (li === 0) return;
+    const polygons = contourInfo[li].polygons ?? (contourInfo[li].polygon ? [contourInfo[li].polygon] : []);
+    (level.voids ?? []).forEach((v) => {
+      const corners = [{ x: v.x0, y: v.y0 }, { x: v.x1, y: v.y0 }, { x: v.x1, y: v.y1 }, { x: v.x0, y: v.y1 }];
+      const inside = polygons.some((poly) => corners.every((c) => pointInPolygon(c, poly) || onPolygonEdge(c, poly, 0.02)));
+      if (!inside) {
+        warnings.push(`${level.name}: un vacío de doble altura queda fuera del contorno y no se calcula. Movelo adentro o borralo.`);
+        return;
+      }
+      holeRectsByLevel[li].push({ x0: v.x0, x1: v.x1, y0: v.y0, y1: v.y1 });
+      voidAreaByLevel[li] += (v.x1 - v.x0) * (v.y1 - v.y0);
+      guardByLevel[li] = Math.max(guardByLevel[li] ?? 0, 1.0);
+    });
+  });
+  totals.voidArea = voidAreaByLevel.reduce((sum, a) => sum + a, 0);
   const holesByLevel = holeRectsByLevel.map((rects) => unionOutline(rects));
 
   let base = f.elevation;
@@ -227,10 +270,12 @@ export function generate(project) {
       const wallIds = new Set(region.walls.map(w => w.id));
       const level = { ...sourceLevel, walls: region.walls, balconies: (sourceLevel.balconies ?? []).filter(b => wallIds.has(b.wallId)) };
       const lv = { level: li, ...(regions.length > 1 ? { region: ri } : {}) };
+      // con varias estructuras en el nivel, las piezas numeradas por índice llevan la estructura en su identidad
+      const rk = regions.length > 1 ? `r${ri}:` : "";
       const upperPolygons = li + 1 < project.levels.length ? (contourInfo[li + 1].polygons ?? (contourInfo[li + 1].polygon ? [contourInfo[li + 1].polygon] : [])) : [];
       const touchingAbove = footprint ? upperPolygons.filter(upper => differenceRects(footprint, upper).reduce((sum, r) => sum + (r.x1 - r.x0) * (r.y1 - r.y0), 0) < polygonArea(footprint) - EPS) : upperPolygons;
       const above = touchingAbove.length > 1 ? touchingAbove : touchingAbove[0] ?? null;
-      const regionHoles = (holesByLevel[li] ?? []).filter(loop => regions.length === 1 || footprint && pointInPolygon(loop[0], footprint));
+      const regionHoles = (holesByLevel[li] ?? []).filter(loop => regions.length === 1 || footprint && pointInPolygon(loopInnerPoint(loop), footprint));
       const isTop = !above;
       const elevated = li > 0 || f.type !== "platea";
       const elev = base;
@@ -271,7 +316,8 @@ export function generate(project) {
         : [];
 
       const openingSpans = (wall) => wall.openings.map((o) => [o.offset, o.offset + o.width]);
-      const insideOpening = (wall, sPos, margin = 0) => openingSpans(wall).some(([a, b]) => sPos > a - margin && sPos < b + margin);
+      // Con tolerancia: una pieza justo en el límite se resuelve igual en módulos idénticos ubicados en otro lugar.
+      const insideOpening = (wall, sPos, margin = 0) => openingSpans(wall).some(([a, b]) => sPos > a - margin + 1e-6 && sPos < b + margin - 1e-6);
 
       // ---------- Columnas y bastidores ----------
       const columnNodes = new Map();
@@ -655,6 +701,8 @@ export function generate(project) {
             loop.forEach((p, i) => {
               const q = loop[(i + 1) % loop.length];
               const mid = { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 };
+              // un borde del hueco que coincide con el muro ya apoya en el bastidor: no lleva viga propia
+              if (onPolygonEdge(mid, footprint, ring.b)) return;
               if (Math.abs(bOf(p) - bOf(q)) < 1e-6) {
                 const c = bOf(p);
                 const inside = pointInPolygon(makePoint(uOf(mid), c + 0.01), loop);
@@ -702,6 +750,10 @@ export function generate(project) {
             const p2 = makePoint(hd.u, hd.b1);
             addMember("floorJoist", "Brochales del hueco", "piso", [p1.x, p1.y, zJ], [p2.x, p2.y, zJ], hd.b1 - hd.b0, lv);
           });
+          const longHeader = Math.max(0, ...headers.map((hd) => hd.b1 - hd.b0));
+          if (longHeader > system.defaults.maxJoistSpan) {
+            warnings.push(`${level.name}: la viga del borde del hueco salva ${round(longHeader, 2)} m y recibe las viguetas cortadas: verificá su sección o apoyala en una columna.`);
+          }
           if (maxSpan > system.defaults.maxJoistSpan) {
             warnings.push(`${multi ? `${level.name}: l` : "L"}as viguetas de ${li === 0 ? "piso" : "entrepiso"} salvan ${round(maxSpan, 2)} m: verificá la sección o agregá una viga intermedia con apoyo.`);
           }
@@ -734,7 +786,7 @@ export function generate(project) {
                 if (alongWall(A, B, level.walls)) return;
                 railAlong((role, grp, a3, b3, cut, extra) => addMember(role, grp, "escaleras", a3, b3, cut, extra), {
                   a: A, b: B, za: floorTop, zb: floorTop, height: guardByLevel[li] ?? 1.0, kind: "baranda", gap: 0.1,
-                  identity: `hueco:${hi}:${i}:${k}`, prof, lv
+                  identity: `hueco:${rk}${hi}:${i}:${k}`, prof, lv
                 });
               });
             })
@@ -854,10 +906,10 @@ export function generate(project) {
           const fmt = (v) => String(round(v, 2)).replace(".", ",");
           exposedItems.forEach(({ part, plane }, pi) => {
             if (plane.kind === "terraza") {
-              const r = buildTerrace(part, pi, plane, ctx);
+              const r = buildTerrace(part, `${rk}${pi}`, plane, ctx);
               if (r.maxSpan > system.defaults.maxJoistSpan) warnings.push(`${level.name}: las viguetas de la terraza salvan ${fmt(r.maxSpan)} m: verificá la sección o agregá una viga con apoyo.`);
             } else {
-              buildExposedRoof(part, pi, plane, ctx);
+              buildExposedRoof(part, `${rk}${pi}`, plane, ctx);
             }
             if (part.drainsToUpper) warnings.push(`${level.name}: una parte descubierta desagua contra ${upLevel.name}; lleva canaleta y embudo en ese encuentro.`);
           });

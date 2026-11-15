@@ -1,10 +1,10 @@
 {
-  "name": "ModularLive",
-  "short_name": "ModularLive",
+  "name": "ActivaModular",
+  "short_name": "ActivaModular",
   "description": "PWA para diseñar en planta y 3D y calcular materiales de viviendas y espacios modulares.",
-  "start_url": "./",
+  "start_url": "./cad.html",
   "display": "standalone",
-  "background_color": "#f3f1e8",
+  "background_color": "#ffffff",
   "theme_color": "#000000",
   "lang": "es",
   "icons": [
@@ -29,9 +29,9 @@
   ],
   "shortcuts": [
     {
-      "name": "Diseñador en planta y 3D",
-      "short_name": "Diseñador",
-      "url": "./cad.html"
+      "name": "Cómputo rápido",
+      "short_name": "Cómputo",
+      "url": "./index.html"
     }
   ]
 }

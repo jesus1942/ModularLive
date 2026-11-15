@@ -14,9 +14,11 @@ import { engineeringInputsHtml, engineeringUsageHtml, engineeringPrintHtml, engi
 import { MATERIALS } from "./engineering/data/materials.js";
 import { LOCATIONS, locationWind_m_s } from "./engineering/data/locations.js";
 import { windCasePatches } from "./engineering/wind.js";
+import { DIRECTIONS, allItems, cloneItems, copyOpenings, inwardSign, itemsBounds, previewClones, repeatOpening, structureItems } from "./clone.js";
+import { LOFT_DEFAULTS, buildLoft } from "./loft.js";
+import { cutsHtml, download, escapeHtml, fmtMoney, fmtNum, getPrices, materialsTableHtml, savePrice, slug } from "./bom-view.js";
 import { formatPressure, formatForce } from "./engineering/units.js";
 
-const PRICES_KEY = "modularlive_prices"; // compartido con la calculadora rápida
 const $ = (sel) => document.querySelector(sel);
 
 const store = createStore();
@@ -26,10 +28,7 @@ let engineering = null;
 let engineeringExtraOpen = false;
 
 // ---------- utilidades ----------
-const fmtNum = (v, d = 2) => Number(v).toLocaleString("es-AR", { maximumFractionDigits: d, minimumFractionDigits: 0 });
-const fmtMoney = (v) => Number(v).toLocaleString("es-AR", { style: "currency", currency: "ARS", maximumFractionDigits: 0 });
 const opt = (value, label, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`;
-const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 let toastTimer;
 function toast(message) {
@@ -39,36 +38,6 @@ function toast(message) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove("is-visible"), 2600);
 }
-
-function getPrices() {
-  try {
-    return JSON.parse(localStorage.getItem(PRICES_KEY) || "{}");
-  } catch {
-    return {};
-  }
-}
-function savePrice(material, price) {
-  try {
-    const prices = getPrices();
-    if (price > 0) prices[material] = price;
-    else delete prices[material];
-    localStorage.setItem(PRICES_KEY, JSON.stringify(prices));
-  } catch {
-    /* sin almacenamiento */
-  }
-}
-
-function download(filename, content, type) {
-  const blob = new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-const slug = (s) => s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "proyecto";
 
 /**
  * Rechaza solo datos fuera de rango o ilegibles. El atributo step es una ayuda de las flechas:
@@ -104,6 +73,7 @@ const editor = createPlanEditor({
       $("#windViewMode").value = "model";
       renderWindView();
     }
+    if (sel?.type !== "multi") editor.setPreview(null);
     renderSelection();
     viewer?.highlightWall(sel?.wallId ?? null);
   },
@@ -387,6 +357,17 @@ function renderSelection() {
     renderSurfacePanel(panel, sel, li);
     return;
   }
+  if (sel?.type === "multi") {
+    renderClonePanel(panel, sel.items, li);
+    return;
+  }
+  if (sel?.type === "void") {
+    const v = (level.voids ?? []).find((x) => x.id === sel.voidId);
+    if (v) {
+      renderVoidPanel(panel, v, li);
+      return;
+    }
+  }
   if (sel?.type === "stair") {
     const st = (level.stairs ?? []).find((x) => x.id === sel.stairId);
     if (st) {
@@ -418,6 +399,7 @@ function renderSelection() {
         <button type="button" class="btn btn--ghost" data-action="add-level">+ Nivel encima</button>
         ${li < project.levels.length - 1 ? '<button type="button" class="btn btn--ghost" data-action="add-stair">+ Escalera al nivel de arriba</button>' : ""}
         ${li > 0 ? '<button type="button" class="btn btn--ghost" data-action="copy-contour">Copiar contorno de abajo</button>' : ""}
+        ${level.walls.length ? '<button type="button" class="btn btn--ghost" data-action="select-all">Copiar todo el nivel</button>' : ""}
         ${project.levels.length > 1 ? '<button type="button" class="btn btn--danger" data-action="delete-level">Eliminar nivel</button>' : ""}
       </div>
       ${exposedHtml(li)}
@@ -426,9 +408,12 @@ function renderSelection() {
         <li><kbd>P</kbd> puerta · <kbd>N</kbd> ventana · <kbd>V</kbd> seleccionar</li>
         <li>Doble clic en una puerta cambia hacia dónde abre</li>
         <li>Balcón: tocá un muro exterior y <em>+ Balcón</em></li>
+        <li><kbd>M</kbd> copiar: elegí piezas o un módulo entero y cuántas copias</li>
+        <li><kbd>D</kbd> doble altura: vacío en el entrepiso de un nivel superior</li>
         <li>Mientras dibujás, escribí el largo y <kbd>Enter</kbd></li>
       </ul>`;
     panel.querySelector('[data-action="add-level"]').addEventListener("click", addLevelAbove);
+    panel.querySelector('[data-action="select-all"]')?.addEventListener("click", () => editor.selectItems(allItems(level)));
     wireExposed(panel, li);
     panel.querySelector('[data-action="add-stair"]')?.addEventListener("click", () => editor.setTool("stair"));
     panel.querySelector('[data-action="copy-contour"]')?.addEventListener("click", () => {
@@ -467,7 +452,24 @@ function renderSelection() {
         <label>Desde el inicio (m)<input type="number" step="0.05" min="0" data-o="offset" value="${o.offset.toFixed(2)}" /></label>
       </div>
       ${o.kind === "door" ? doorSwingHtml(wall, o, li) : ""}
-      <div class="row-actions"><button type="button" class="btn btn--danger" data-action="delete">Eliminar abertura</button></div>`;
+      <div class="clone-box">
+        <h4>Repetir en este muro</h4>
+        <div class="fields fields--2">
+          <label>Copias<input type="number" min="1" max="30" step="1" data-rep="count" value="1" /></label>
+          <label>Separación (m)<input type="number" min="0.1" max="20" step="0.05" data-rep="gap" value="0.6" /></label>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn btn--ghost" data-action="repeat">Repetir</button>
+          <button type="button" class="btn btn--danger" data-action="delete">Eliminar abertura</button>
+        </div>
+      </div>`;
+    panel.querySelector('[data-action="repeat"]').addEventListener("click", () => {
+      const count = Number(panel.querySelector('[data-rep="count"]').value);
+      const gap = Number(panel.querySelector('[data-rep="gap"]').value);
+      let res = { added: 0, skipped: 0 };
+      store.update((p) => { res = repeatOpening(levelOf(p), wall.id, o.id, count, gap); });
+      toast(res.added ? `${res.added} ${res.added === 1 ? "copia agregada" : "copias agregadas"}${res.skipped ? `; ${res.skipped} no entraban en el muro` : ""}.` : "No entra ninguna copia más en este muro con esa separación.");
+    });
     panel.querySelectorAll("[data-swing]").forEach((b) =>
       b.addEventListener("click", () => {
         store.update((p) => {
@@ -512,7 +514,26 @@ function renderSelection() {
         <button type="button" class="btn btn--ghost" data-action="add-window">+ Ventana</button>
         ${wall.type === "exterior" ? '<button type="button" class="btn btn--ghost" data-action="add-balcony">+ Balcón</button>' : ""}
         <button type="button" class="btn btn--danger" data-action="delete">Eliminar muro</button>
+      </div>
+      <div class="clone-box">
+        <h4>Copiar</h4>
+        <div class="row-actions">
+          <button type="button" class="btn btn--ghost" data-action="pick-module">Módulo completo</button>
+          <button type="button" class="btn btn--ghost" data-action="pick-wall">Solo este muro</button>
+          ${wall.openings.length ? `<button type="button" class="btn btn--ghost" data-action="copy-openings">Copiar sus aberturas (${wall.openings.length})</button>` : ""}
+        </div>
+        ${openingClip && openingClip.wall.id !== wall.id ? `
+          <p class="muted small">Aberturas copiadas: ${openingClip.wall.openings.length}, de un muro de ${fmtNum(wallLength(openingClip.wall))} m.</p>
+          <div class="row-actions">
+            <button type="button" class="btn btn--ghost" data-action="paste-openings" data-mirror="0">Pegar igual</button>
+            <button type="button" class="btn btn--ghost" data-action="paste-openings" data-mirror="1">Pegar enfrentadas</button>
+          </div>
+          <p class="muted small">«Igual» mide desde el inicio del muro. «Enfrentadas» mide desde el otro extremo: es la que sirve para el lateral opuesto.</p>` : ""}
       </div>`;
+    panel.querySelector('[data-action="pick-module"]').addEventListener("click", () => editor.selectItems(structureItems(level, wall.id)));
+    panel.querySelector('[data-action="pick-wall"]').addEventListener("click", () => editor.selectItems([{ type: "wall", id: wall.id }]));
+    panel.querySelector('[data-action="copy-openings"]')?.addEventListener("click", () => copyWallOpenings(wall, li));
+    panel.querySelectorAll('[data-action="paste-openings"]').forEach((b) => b.addEventListener("click", () => pasteWallOpenings(wall, li, b.dataset.mirror === "1")));
     panel.querySelector('[data-w="type"]').addEventListener("change", (e) => {
       store.update((p) => {
         levelOf(p).walls.find((w) => w.id === wall.id).type = e.target.value;
@@ -596,6 +617,140 @@ function renderSurfacePanel(panel, selection, li) {
       panel.insertAdjacentHTML("beforeend", '<p class="eng-note">Sobre esta estructura apoya el entrepiso del nivel de arriba. Su techo exterior se edita en el nivel superior.</p>');
     }
   }
+}
+
+// ---------- copiar: aberturas de un lateral, piezas elegidas o el módulo entero ----------
+let openingClip = null; // { wall (copia), inward }
+const cloneOpts = { count: 1, direction: "right", gap: 0, mirror: false, allLevels: true };
+
+function copyWallOpenings(wall, li) {
+  openingClip = { wall: JSON.parse(JSON.stringify(wall)), inward: inwardSign(wall, wallFootprint(gen?.levels?.[li], wall)) };
+  toast(`${wall.openings.length} ${wall.openings.length === 1 ? "abertura copiada" : "aberturas copiadas"}. Tocá otro muro y elegí «Pegar».`);
+  renderSelection();
+}
+
+function pasteWallOpenings(wall, li, mirror) {
+  if (!openingClip) return;
+  const inward = (w) => (w === openingClip.wall ? openingClip.inward : inwardSign(w, wallFootprint(gen?.levels?.[li], w)));
+  let res = { added: 0, skipped: 0 };
+  store.update((p) => { res = copyOpenings(levelOf(p), openingClip.wall, wall.id, { mirror, inward }); });
+  toast(res.added
+    ? `${res.added} ${res.added === 1 ? "abertura pegada" : "aberturas pegadas"}${res.skipped ? `; ${res.skipped} no ${res.skipped === 1 ? "entraba" : "entraban"} o se ${res.skipped === 1 ? "pisaba" : "pisaban"} con otra` : ""}.`
+    : "No se pegó ninguna: no entran en este muro o se pisan con las que ya tiene.");
+}
+
+/** Panel de copia: qué se eligió, cuántas copias, hacia dónde, con qué separación y si van en espejo. */
+function renderClonePanel(panel, rawItems, li) {
+  const project = store.project;
+  const level = project.levels[li];
+  const exists = (it) => (it.type === "wall" ? level.walls : it.type === "stair" ? level.stairs ?? [] : it.type === "balcony" ? level.balconies ?? [] : level.voids ?? []).some((x) => x.id === it.id);
+  const items = rawItems.filter(exists);
+  if (!items.length) { editor.setSelection(null); return; }
+  const count = (type) => items.filter((it) => it.type === type).length;
+  const walls = level.walls.filter((w) => items.some((it) => it.type === "wall" && it.id === w.id));
+  const openings = walls.reduce((sum, w) => sum + w.openings.length, 0);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const parts = [
+    count("wall") && plural(count("wall"), "muro", "muros"),
+    openings && plural(openings, "abertura", "aberturas"),
+    count("stair") && plural(count("stair"), "escalera", "escaleras"),
+    count("balcony") && plural(count("balcony"), "balcón", "balcones"),
+    count("void") && plural(count("void"), "vacío de doble altura", "vacíos de doble altura")
+  ].filter(Boolean);
+  const box = itemsBounds(level, items);
+  const horizontal = DIRECTIONS[cloneOpts.direction].x !== 0;
+  const size = box ? (horizontal ? box.maxX - box.minX : box.maxY - box.minY) : 0;
+  const multiLevel = project.levels.length > 1;
+  panel.innerHTML = `
+    <h3>Copiar selección</h3>
+    <p class="pick-list">${parts.join(", ")}${box ? `<br><span class="muted">Ocupa ${fmtNum(box.maxX - box.minX)} × ${fmtNum(box.maxY - box.minY)} m</span>` : ""}</p>
+    <div class="row-actions">
+      ${walls.length ? '<button type="button" class="btn btn--ghost" data-action="grow-module">Sumar el módulo completo</button>' : ""}
+      <button type="button" class="btn btn--ghost" data-action="grow-all">Todo el nivel</button>
+    </div>
+    <div class="clone-box">
+      <h4>Copias</h4>
+      <div class="fields fields--2">
+        <label>Cantidad<input type="number" min="1" max="50" step="1" data-clone="count" value="${cloneOpts.count}" /></label>
+        <label>Separación (m)<input type="number" min="0" max="50" step="0.05" data-clone="gap" value="${cloneOpts.gap}" /></label>
+      </div>
+      <div class="fields" style="padding:10px 0 0">
+        <label>Hacia dónde
+          <div class="seg-choice" role="group" aria-label="Dirección de las copias">
+            ${[["left", "←"], ["right", "→"], ["up", "↑"], ["down", "↓"]].map(([id, glyph]) => `<button type="button" data-dir="${id}" aria-pressed="${cloneOpts.direction === id}" aria-label="${DIRECTIONS[id].label}" title="${DIRECTIONS[id].label}">${glyph}</button>`).join("")}
+          </div>
+        </label>
+        <label class="check"><input type="checkbox" data-clone="mirror" ${cloneOpts.mirror ? "checked" : ""} /> En espejo, una copia sí y una no</label>
+        ${multiLevel ? `<label class="check"><input type="checkbox" data-clone="allLevels" ${cloneOpts.allLevels ? "checked" : ""} /> Copiar también los otros niveles</label>` : ""}
+      </div>
+      <p class="muted small">Cada copia arranca a ${fmtNum(size + cloneOpts.gap)} m de la anterior. ${cloneOpts.gap > 0
+        ? "Con separación, cada módulo queda independiente, con sus cuatro muros, su piso y su techo."
+        : "Sin separación quedan adosadas: el muro compartido pasa a ser un tabique y se computa una sola vez."}${cloneOpts.mirror ? " En espejo, las puertas y ventanas quedan simétricas respecto del borde entre copias." : ""}</p>
+      <div class="row-actions">
+        <button type="button" class="btn" data-action="clone">${cloneOpts.count === 1 ? "Crear la copia" : `Crear ${cloneOpts.count} copias`}</button>
+        <button type="button" class="btn btn--ghost" data-action="clear">Quitar selección</button>
+        <button type="button" class="btn btn--danger" data-action="delete">Eliminar selección</button>
+      </div>
+    </div>`;
+  editor.setPreview(previewClones(level, items, cloneOpts));
+  panel.querySelector('[data-action="grow-module"]')?.addEventListener("click", () => {
+    const seen = new Map(items.map((it) => [`${it.type}:${it.id}`, it]));
+    walls.forEach((w) => structureItems(level, w.id).forEach((it) => seen.set(`${it.type}:${it.id}`, it)));
+    editor.selectItems([...seen.values()]);
+  });
+  panel.querySelector('[data-action="grow-all"]').addEventListener("click", () => editor.selectItems(allItems(level)));
+  panel.querySelectorAll("[data-dir]").forEach((b) => b.addEventListener("click", () => { cloneOpts.direction = b.dataset.dir; renderSelection(); }));
+  panel.querySelectorAll("[data-clone]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const key = el.dataset.clone;
+      if (el.type === "checkbox") cloneOpts[key] = el.checked;
+      else if (!el.value.trim() || outOfRange(el) || !Number.isFinite(Number(el.value))) toast(key === "count" ? "La cantidad va de 1 a 50." : "La separación va de 0 a 50 m.");
+      else cloneOpts[key] = key === "count" ? Math.round(Number(el.value)) : Number(el.value);
+      renderSelection();
+    })
+  );
+  panel.querySelector('[data-action="clear"]').addEventListener("click", () => editor.setSelection(null));
+  panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
+  panel.querySelector('[data-action="clone"]').addEventListener("click", () => {
+    let res = { items: [], created: 0, levels: 0 };
+    store.update((p) => { res = cloneItems(p, li, items, cloneOpts); });
+    if (!res.created) { toast("No hay nada para copiar en la selección."); return; }
+    editor.setSelection(null);
+    requestAnimationFrame(() => { editor.fit(); viewer?.frame(); });
+    toast(`${cloneOpts.count === 1 ? "Copia creada" : `${cloneOpts.count} copias creadas`}${res.levels > 1 ? ` en ${res.levels} niveles` : ""}. Se deshace con Ctrl+Z.`);
+  });
+}
+
+/** Vacío de doble altura en el entrepiso de este nivel. */
+function renderVoidPanel(panel, v, li) {
+  const level = store.project.levels[li];
+  panel.innerHTML = `
+    <h3>Doble altura <span class="muted">${escapeHtml(level.name)}</span></h3>
+    <p class="stair-sum"><strong>${fmtNum(v.x1 - v.x0)} × ${fmtNum(v.y1 - v.y0)} m</strong> · ${fmtNum((v.x1 - v.x0) * (v.y1 - v.y0))} m² sin entrepiso</p>
+    <div class="fields fields--2">
+      <label>Desde X (m)<input type="number" step="0.05" data-void="x0" value="${v.x0}" /></label>
+      <label>Hasta X (m)<input type="number" step="0.05" data-void="x1" value="${v.x1}" /></label>
+      <label>Desde Y (m)<input type="number" step="0.05" data-void="y0" value="${v.y0}" /></label>
+      <label>Hasta Y (m)<input type="number" step="0.05" data-void="y1" value="${v.y1}" /></label>
+    </div>
+    <div class="row-actions"><button type="button" class="btn btn--danger" data-action="delete">Eliminar vacío</button></div>
+    <p class="muted small">En el vacío no hay viguetas, piso ni cielorraso. El borde libre lleva viga y baranda de 1,00 m; los bordes contra un muro apoyan en el bastidor. Si una escalera llega al borde, la baranda deja su paso.</p>`;
+  panel.querySelectorAll("[data-void]").forEach((el) =>
+    el.addEventListener("change", () => {
+      const value = Number(el.value);
+      const next = { ...v, [el.dataset.void]: value };
+      if (!el.value.trim() || !Number.isFinite(value) || next.x1 - next.x0 < 0.3 || next.y1 - next.y0 < 0.3) {
+        toast("El vacío tiene que medir al menos 0,30 m de cada lado.");
+        el.value = v[el.dataset.void];
+        return;
+      }
+      store.update((p) => {
+        const target = (levelOf(p).voids ?? []).find((x) => x.id === v.id);
+        if (target) target[el.dataset.void] = value;
+      });
+    })
+  );
+  panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());
 }
 
 /** Qué se hace con la parte del nivel que el de arriba no tapa: techo a un agua o terraza. */
@@ -804,38 +959,15 @@ function renderMetrics() {
     ["Acero a comprar (barras)", `${fmtNum(s.steelKg, 0)} kg`],
     ["Barras de perfil", fmtNum(s.structuralBars, 0)],
     ["Hormigón", `${fmtNum(s.concrete)} m³`],
-    ["Piezas", fmtNum(s.pieces, 0)]
+    ["Piezas", fmtNum(s.pieces, 0)],
+    ...(gen.totals.voidArea > 0 ? [["Doble altura", `${fmtNum(gen.totals.voidArea)} m²`]] : [])
   ];
   $("#metrics").innerHTML = items.map(([k, v]) => `<div><span>${k}</span><strong>${v}</strong></div>`).join("");
   $("#warnings").innerHTML = gen.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("");
 }
 
 function renderMaterials() {
-  const prices = getPrices();
-  let total = 0;
-  let lastCategory = null;
-  const rows = bom.rows
-    .map((r) => {
-      const price = Number(prices[r.material]) || 0;
-      const subtotal = price * r.quantity;
-      total += subtotal;
-      const head = r.category !== lastCategory ? `<tr class="cat"><th colspan="5">${r.category}</th></tr>` : "";
-      lastCategory = r.category;
-      return `${head}<tr>
-        <td><strong>${escapeHtml(r.material)}</strong><small>${escapeHtml(r.detail)}</small></td>
-        <td class="num">${fmtNum(r.quantity)}</td>
-        <td>${r.unit}</td>
-        <td class="num"><input type="number" min="0" step="any" inputmode="decimal" data-price="${escapeHtml(r.material)}" value="${price || ""}" placeholder="$" aria-label="Precio unitario de ${escapeHtml(r.material)}" /></td>
-        <td class="num">${subtotal ? fmtMoney(subtotal) : "—"}</td>
-      </tr>`;
-    })
-    .join("");
-  $("#materialsPanel").innerHTML = `
-    <div class="table-wrap"><table class="bom">
-      <thead><tr><th>Material</th><th class="num">Cantidad</th><th>Unidad</th><th class="num">Precio unit.</th><th class="num">Subtotal</th></tr></thead>
-      <tbody>${rows}</tbody>
-      <tfoot><tr><td colspan="4">Total materiales con precio cargado</td><td class="num">${total ? fmtMoney(total) : "—"}</td></tr></tfoot>
-    </table></div>`;
+  $("#materialsPanel").innerHTML = materialsTableHtml(bom);
 }
 
 $("#materialsPanel").addEventListener("change", (e) => {
@@ -846,22 +978,7 @@ $("#materialsPanel").addEventListener("change", (e) => {
 });
 
 function renderCuts() {
-  $("#cutsPanel").innerHTML = bom.cutLists
-    .map((list) => {
-      const bars = list.bars
-        .map((bar, i) => {
-          const segs = bar.pieces
-            .map((p) => `<span class="seg${p.spliced ? " seg--splice" : ""}" style="flex-basis:${(p.length / list.stock) * 100}%" title="${escapeHtml(p.group)} · ${fmtNum(p.length, 3)} m">${p.length >= 0.45 ? fmtNum(p.length, 2) : ""}</span>`)
-            .join("");
-          return `<div class="bar"><span class="bar__n">${i + 1}</span><div class="bar__track">${segs}<span class="seg seg--waste" style="flex-basis:${(bar.waste / list.stock) * 100}%"></span></div></div>`;
-        })
-        .join("");
-      return `<article class="cutlist">
-        <header><h4>${escapeHtml(list.label)}</h4><span>${list.barCount} barras de ${fmtNum(list.stock)} m · ${fmtNum(list.totalLength)} m útiles · desperdicio ${fmtNum(list.wastePercent, 1)}%${list.splices ? ` · ${list.splices} empalmes` : ""}</span></header>
-        <div class="bars">${bars}</div>
-      </article>`;
-    })
-    .join("");
+  $("#cutsPanel").innerHTML = cutsHtml(bom);
 }
 
 /** Cambia la pestaña sin descartar el resultado ni alterar el modelo de obra. */
@@ -939,14 +1056,54 @@ document.querySelectorAll("button[data-view]").forEach((b) =>
   })
 );
 
-$("#newBtn").addEventListener("click", () => {
-  if (!confirm("¿Empezar un diseño nuevo? El actual se puede recuperar con Deshacer.")) return;
-  const blank = createDefaultProject();
-  blank.levels = [createLevel(0, [])];
-  blank.name = "Proyecto nuevo";
-  store.replace(blank);
+const afterReplace = (tool = "select") => {
   editor.setLevel(0);
-  editor.setTool("rect");
+  editor.setTool(tool);
+  requestAnimationFrame(() => {
+    editor.fit();
+    viewer?.frame();
+  });
+};
+$("#newBtn").addEventListener("click", () => $("#newDialog").showModal());
+$("#newDialog").addEventListener("close", (e) => {
+  const choice = e.target.returnValue;
+  if (choice === "module") {
+    store.replace(createDefaultProject());
+    afterReplace();
+  } else if (choice === "loft") {
+    const { project } = buildLoft();
+    store.replace(project);
+    afterReplace();
+    $("#levelView").value = "all";
+    toast("Loft armado: planta baja con doble altura y altillo. Ajustá las medidas en «Loft con altillo».");
+  } else if (choice === "blank") {
+    const blank = createDefaultProject();
+    blank.levels = [createLevel(0, [])];
+    blank.name = "Proyecto nuevo";
+    store.replace(blank);
+    afterReplace("rect");
+  }
+  e.target.returnValue = "";
+});
+
+// ---------- loft con altillo ----------
+const loftInput = () => Object.fromEntries([...document.querySelectorAll("[data-loft]")].map((el) => [el.dataset.loft, el.type === "checkbox" ? el.checked : Number(el.value)]));
+function renderLoftSummary() {
+  const res = buildLoft(loftInput(), store.project);
+  const el = $("#loftSummary");
+  if (res.error) { el.textContent = res.error; return; }
+  const cfg = { ...LOFT_DEFAULTS, ...loftInput() };
+  el.textContent = `Doble altura de ${fmtNum(res.voidLen)} × ${fmtNum(cfg.width)} m, altillo de ${fmtNum(cfg.mezzanine * cfg.width)} m². ${res.notes.join(" ")}`;
+}
+$("#loftFields").addEventListener("input", renderLoftSummary);
+$("#loftBuild").addEventListener("click", () => {
+  const res = buildLoft(loftInput(), store.project);
+  if (res.error) { toast(res.error); return; }
+  const hasDesign = store.project.levels.some((l) => l.walls.length);
+  if (hasDesign && !confirm("¿Reemplazar el diseño actual por el loft? Se puede recuperar con Deshacer.")) return;
+  store.replace(res.project);
+  afterReplace();
+  toast(res.notes[0] ?? "Loft armado. Se edita como cualquier diseño: muros, aberturas, escalera y vacío.");
 });
 
 $("#saveBtn").addEventListener("click", () => {
@@ -1001,13 +1158,29 @@ window.addEventListener("keydown", (e) => {
     else store.undo();
     return;
   }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+    e.preventDefault();
+    editor.selectItems(allItems(levelOf(store.project)));
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && ["c", "v"].includes(e.key.toLowerCase())) {
+    const sel = editor.getSelection();
+    const wall = sel?.type === "wall" ? levelOf(store.project).walls.find((w) => w.id === sel.wallId) : null;
+    if (!wall) return;
+    e.preventDefault();
+    if (e.key.toLowerCase() === "c") {
+      if (wall.openings.length) copyWallOpenings(wall, activeLevel());
+      else toast("Ese muro no tiene aberturas para copiar.");
+    } else if (openingClip) pasteWallOpenings(wall, activeLevel(), e.shiftKey);
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") {
     e.preventDefault();
     store.redo();
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
-  const keys = { v: "select", r: "rect", e: "exterior", i: "interior", p: "door", n: "window", s: "stair", f: "floor", t: "roof", b: "balcony" };
+  const keys = { v: "select", r: "rect", e: "exterior", i: "interior", p: "door", n: "window", s: "stair", f: "floor", t: "roof", b: "balcony", m: "multi", d: "void" };
   const tool = keys[e.key.toLowerCase()];
   if (tool && editor.tool !== tool && !/^[0-9]$/.test(e.key)) editor.setTool(tool);
 });
@@ -1017,6 +1190,7 @@ window.addEventListener("resize", () => editor.render());
 // ---------- inicio ----------
 $("#engineeringInputs").innerHTML = engineeringInputsHtml();
 renderLayerToggles();
+renderLoftSummary();
 editor.setTool("select");
 regenerate();
 requestAnimationFrame(() => {

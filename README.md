@@ -1,11 +1,13 @@
-# ModularLive
+# ActivaModular (ModularLive)
 
 PWA estática para diseñar y computar materiales de espacios modulares: viviendas, oficinas, baños y configuraciones personalizadas.
 
 Tiene dos herramientas:
 
-- **Calculadora rápida** (`index.html`): un módulo rectangular por parámetros, con presets y cotización.
 - **Diseñador en planta y 3D** (`cad.html`): dibujás la planta y la herramienta genera cada pieza de la estructura, la fundación y los cerramientos, con vista 3D, cómputo de materiales y lista de cortes.
+- **Cómputo rápido** (`index.html`): cargás medidas, aberturas y terminaciones y obtenés el cómputo sin dibujar. No tiene fórmulas propias: arma el mismo modelo que el diseñador (`cad/quick.js`) y lo pasa por el mismo generador y el mismo cómputo, así que las cantidades coinciden siempre. Incluye loft con altillo, varios módulos iguales (también en espejo), precios compartidos, mano de obra por m² y **Abrir en el diseñador** para seguir editando.
+
+Las dos pantallas comparten barra, estilos (`cad/cad.css`), tabla de materiales y lista de cortes (`cad/bom-view.js`). Todo en blanco y negro.
 
 ## Diseñador en planta y 3D
 
@@ -18,19 +20,22 @@ Tiene dos herramientas:
 5. Para subir de nivel, en la planta baja tocá **Escalera** (`S`): un toque donde arranca y otro hacia donde sube. Se calcula sola: cantidad de alzadas, alzada, pedada y regla de Blondel, tramos y descansos (recta, en L o en U), con reglas municipales típicas (a confirmar con el código local) o de accesibilidad (Decreto 914/97). Arrastrala para moverla: si queda cerca de un muro se pega a su cara. En el nivel de arriba aparece el hueco.
 6. Cada **contorno cerrado** recibe su piso y techo: podés dibujar varias estructuras en el mismo nivel. **Piso** (`F`) o **Techo** (`T`), seguido de un toque dentro de la estructura, abre sus controles y muestra la capa. El techo también está visible al abrir el diseño. La fundación, el tipo de techo y las separaciones se ajustan para el proyecto.
 7. Para colocar un **Balcón** (`B`), tocá un muro exterior de una estructura cerrada; editá ancho, profundidad, apoyo y baranda en el panel derecho. También funciona el botón **+ Balcón** del muro seleccionado.
-8. Revisá el 3D por capas (y por niveles), la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
+8. Para **copiar** (`M`): tocá las piezas que querés o arrastrá una ventana alrededor; en un muro, **Módulo completo** toma su contorno con tabiques, aberturas, escaleras y balcones. Elegí cantidad, dirección, separación y si van **en espejo** (una copia sí y una no, simétricas respecto del borde entre copias); la planta muestra las copias en línea de trazos antes de crearlas. Con varios niveles se copian todos. Para repetir un lateral: **Copiar sus aberturas** en un muro y **Pegar igual** o **Pegar enfrentadas** en otro (`Ctrl+C` / `Ctrl+V`). Una abertura sola se repite a lo largo de su muro desde su panel.
+9. **Loft con altillo**: en la barra lateral cargás largo, ancho, alturas y profundidad del altillo y se arma la caja de doble altura con entrepiso parcial, escalera y baranda. La herramienta **Doble altura** (`D`) marca a mano un vacío en el entrepiso de cualquier nivel superior.
+10. Revisá el 3D por capas (y por niveles), la tabla de materiales (con precios propios, compartidos con la calculadora) y la lista de cortes. Exportá CSV, guardá el diseño como `.json` o imprimilo.
 
 Los rectángulos pegados o superpuestos se resuelven como unión de contornos: un borde compartido genera un solo tabique y las áreas superpuestas se computan una vez. Los módulos separados tienen pisos, cubiertas y fundaciones propios, sin cerrar el espacio entre ellos. Se conservan el diseño original, las aberturas que caben en cada tramo y el historial. Los contornos abiertos siguen visibles y explican qué falta cerrar.
 
 El peso y el cómputo incluyen todas las estructuras. Para **varios edificios independientes en un mismo nivel**, el análisis global, el viento y el sismo se indican pendientes de cálculo por edificio; no se reutiliza la primera huella para afirmar que todos están verificados. La nieve balanceada se calcula sobre cada cubierta; los demás patrones quedan pendientes de cálculo por edificio.
 
-Atajos: `V` seleccionar, `R` rectángulo, `E` muro, `I` tabique, `P` puerta, `N` ventana, `S` escalera, `F` piso, `T` techo, `B` balcón, `Ctrl+Z` / `Ctrl+Y`, `Esc` termina o cancela, `Supr` borra lo seleccionado. `Shift` libera el modo ortogonal.
+Atajos: `V` seleccionar, `R` rectángulo, `E` muro, `I` tabique, `P` puerta, `N` ventana, `S` escalera, `F` piso, `T` techo, `B` balcón, `M` copiar, `D` doble altura, `Ctrl+A` todo el nivel, `Ctrl+Z` / `Ctrl+Y`, `Esc` termina o cancela, `Supr` borra lo seleccionado. `Shift` libera el modo ortogonal.
 
 ### Cómo calcula
 
 El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, fundación, techo y parámetros). A partir de ese modelo, `cad/generator.js` produce **cada pieza real** con su posición 3D y su largo de corte. El visor 3D y el cómputo usan exactamente esas piezas, así que lo que se ve es lo que se computa.
 
 - **Estructura (tubo estructural)**: columnas en esquinas y cada ≤ 3 m (corridas fuera de las aberturas), bastidor inferior y superior, montantes, jambas, dinteles, antepechos, marcos en perfil C, viguetas de piso, cabios, cumbrera, cenefas y relleno de hastiales.
+- **Doble altura** (`level.voids`): en el vacío no hay viguetas, piso ni cielorraso. El borde libre lleva viga de borde o brochal y baranda de 1,00 m; los bordes contra un muro apoyan en el bastidor; donde llega una escalera la baranda deja el paso.
 - **Fundación**: dados bajo columnas, viga de fundación con pilotines, o platea con viga de borde. Calcula hormigón, excavación, acero por diámetro, malla, film, encofrado y anclajes.
 - **Niveles**: cada nivel es un módulo completo que apoya sobre el bastidor superior del de abajo, con viguetas de entrepiso, placas de unión abulonadas entre niveles y columnas alineadas (si una esquina de arriba cae sobre un muro de abajo, abajo se agrega una columna que baja hasta la fundación). Avisa los voladizos y las columnas sin apoyo directo.
 - **Techo**: plano, una agua o dos aguas, con alero, sobre el nivel superior. La superficie se calcula en pendiente.
