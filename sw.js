@@ -1,10 +1,13 @@
-const CACHE_NAME = "modular-live-v20";
+const CACHE_NAME = "modular-live-v21";
 const APP_ASSETS = [
   "./",
   "./index.html",
-  "./styles.css",
-  "./app.js",
-  "./calculator.js",
+  "./cad/quick.css",
+  "./cad/quick-app.js",
+  "./cad/quick.js",
+  "./cad/bom-view.js",
+  "./cad/clone.js",
+  "./cad/loft.js",
   "./manifest.webmanifest",
   "./assets/favicon-32.png",
   "./assets/favicon.png",

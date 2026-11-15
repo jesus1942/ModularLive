@@ -3,6 +3,7 @@ import { dist, dot, normalize, pointInPolygon, pointKey, sub, wallDir, wallLengt
 import { STAIR_DEFAULTS, defaultSwing, doorLeaf, levelFootprints, newId, placeBalcony, wallFootprint } from "./model.js";
 import { dirVector, layoutStair } from "./stairs.js";
 import { balconyGeometry } from "./outdoor-build.js";
+import { expandItems, itemKey, itemsInRect, removeItems } from "./clone.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const WALL_THICKNESS = 0.14;
@@ -38,6 +39,8 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   let pinch = null;
   let level = 0;
   let stairStart = null; // primer toque de la herramienta Escalera
+  let marquee = null; // ventana de selección o de vacío: { a, b }
+  let preview = null; // copias a confirmar, dibujadas en línea de trazos
 
   const model = () => draft ?? store.project;
   const lvl = (p) => p.levels[Math.min(level, p.levels.length - 1)];
@@ -186,6 +189,49 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     }) ?? null;
   }
 
+  // ---------- Vacíos de doble altura y selección de varias piezas ----------
+  function voidAt(raw) {
+    return (lvl(model()).voids ?? []).find((v) => raw.x >= v.x0 && raw.x <= v.x1 && raw.y >= v.y0 && raw.y <= v.y1) ?? null;
+  }
+  /** Pieza copiable bajo el puntero (una abertura cuenta como su muro). */
+  function itemAt(raw) {
+    const hit = hitTest(raw);
+    if (!hit) return null;
+    if (hit.type === "wall" || hit.type === "opening") return { type: "wall", id: hit.wallId };
+    if (hit.type === "stair") return { type: "stair", id: hit.stairId };
+    if (hit.type === "balcony") return { type: "balcony", id: hit.balconyId };
+    if (hit.type === "void") return { type: "void", id: hit.voidId };
+    return null;
+  }
+  const pickedItems = () => (selection?.type === "multi" ? selection.items : []);
+  const isPicked = (type, id) => pickedItems().some((it) => it.type === type && it.id === id);
+  function selectItems(items) {
+    const clean = expandItems(lvl(store.project), items);
+    setSelection(clean.length ? { type: "multi", items: clean } : null);
+  }
+  function toggleItem(it) {
+    let current = pickedItems();
+    if (!current.length && selection?.type === "wall") current = [{ type: "wall", id: selection.wallId }];
+    const key = itemKey(it);
+    const next = current.some((x) => itemKey(x) === key) ? current.filter((x) => itemKey(x) !== key) : [...current, it];
+    selectItems(next);
+  }
+  function addVoid(a, b) {
+    const v = { x0: Math.min(a.x, b.x), x1: Math.max(a.x, b.x), y0: Math.min(a.y, b.y), y1: Math.max(a.y, b.y) };
+    if (v.x1 - v.x0 < 0.6 || v.y1 - v.y0 < 0.6) { flash("El vacío tiene que medir al menos 0,60 × 0,60 m."); return; }
+    const polys = levelFootprints(gen?.levels?.[level]);
+    const near = (p, poly) => poly.some((q, i) => projectOnSegment(p, q, poly[(i + 1) % poly.length]).d < 0.02);
+    const corners = [{ x: v.x0, y: v.y0 }, { x: v.x1, y: v.y0 }, { x: v.x1, y: v.y1 }, { x: v.x0, y: v.y1 }];
+    if (!polys.some((poly) => corners.every((c) => pointInPolygon(c, poly) || near(c, poly)))) {
+      flash("Marcá el vacío dentro del contorno cerrado de este nivel.");
+      return;
+    }
+    const id = newId("v");
+    store.update((p) => { lvl(p).voids = [...(lvl(p).voids ?? []), { id, ...v }]; });
+    setTool("select");
+    setSelection({ type: "void", voidId: id });
+  }
+
   // ---------- Operaciones sobre el modelo ----------
   function splitExteriorAt(project, point) {
     const wall = lvl(project).walls.find((w) => {
@@ -269,7 +315,9 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     if (!selection || ["exposed", "floor", "roof"].includes(selection.type)) return;
     const sel = selection;
     store.update((p) => {
-      if (sel.type === "wall") {
+      if (sel.type === "multi") removeItems(lvl(p), sel.items);
+      else if (sel.type === "void") lvl(p).voids = (lvl(p).voids ?? []).filter((v) => v.id !== sel.voidId);
+      else if (sel.type === "wall") {
         lvl(p).walls = lvl(p).walls.filter((w) => w.id !== sel.wallId);
         lvl(p).balconies = (lvl(p).balconies ?? []).filter((b) => b.wallId !== sel.wallId);
       }
@@ -316,6 +364,8 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     if (st) return { type: "stair", stairId: st.id };
     const bal = balconyAt(raw);
     if (bal) return { type: "balcony", balconyId: bal.id };
+    const vd = voidAt(raw);
+    if (vd) return { type: "void", voidId: vd.id };
     return exposedAt(raw);
   }
 
@@ -342,6 +392,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     chain = null;
     rectStart = null;
     stairStart = null;
+    marquee = null;
     typed = "";
     svg.dataset.tool = tool;
     render();
@@ -363,7 +414,11 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   function updateStatus() {
     if (!status || status.classList.contains("is-alert")) return;
     const hints = {
-      select: "Tocá un muro, abertura, escalera, balcón o la parte descubierta para editarlo. Arrastrá los extremos para mover vértices.",
+      select: "Tocá un muro, abertura, escalera, balcón o la parte descubierta para editarlo. Arrastrá los extremos para mover vértices. Con Shift sumás piezas para copiar.",
+      multi: "Tocá las piezas que querés copiar o arrastrá una ventana alrededor. En el panel elegís cuántas copias y hacia dónde.",
+      void: level > 0
+        ? "Arrastrá un rectángulo donde el entrepiso queda abierto en doble altura."
+        : "La doble altura se marca en un nivel superior: es un vacío en su piso. Subí de nivel o agregá uno con +.",
       rect: "Arrastrá (o tocá dos esquinas) para crear un contorno rectangular.",
       exterior: "Tocá para ir marcando muros exteriores. Escribí un largo y Enter para medidas exactas. Doble toque o Esc para terminar.",
       interior: "Tocá para marcar tabiques interiores. Se enganchan a los muros existentes.",
@@ -421,6 +476,20 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       store.update(p => { balcony = placeBalcony(lvl(p), hit.w.id, hit.t * wallLength(hit.w)); });
       if (!balcony) { flash("Elegí un tramo exterior de al menos 0,80 m para colocar el balcón."); return; }
       setTool("select"); setSelection({ type: "balcony", balconyId: balcony.id });
+      return;
+    }
+    if (tool === "void") {
+      if (level === 0) { flash("La doble altura se marca en un nivel superior. Subí de nivel o agregá uno con +."); return; }
+      const p = snapPoint(raw).p;
+      marquee = { a: p, b: p };
+      drag = { kind: "void" };
+      return;
+    }
+    if (tool === "multi" || (tool === "select" && (evt.shiftKey || evt.ctrlKey || evt.metaKey))) {
+      const it = itemAt(raw);
+      if (it) { toggleItem(it); return; }
+      marquee = { a: raw, b: raw };
+      drag = { kind: "marquee", add: evt.shiftKey || evt.ctrlKey || evt.metaKey };
       return;
     }
     if (tool === "select") {
@@ -538,6 +607,29 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     if (!drag) return;
     const current = drag;
     drag = null;
+    if (current.kind === "void") {
+      const box = marquee;
+      marquee = null;
+      if (box) addVoid(box.a, box.b);
+      else render();
+      return;
+    }
+    if (current.kind === "marquee") {
+      const box = marquee;
+      marquee = null;
+      const rect = { minX: Math.min(box.a.x, box.b.x), maxX: Math.max(box.a.x, box.b.x), minY: Math.min(box.a.y, box.b.y), maxY: Math.max(box.a.y, box.b.y) };
+      if (rect.maxX - rect.minX < tol(6) && rect.maxY - rect.minY < tol(6)) {
+        if (!current.add) setSelection(null);
+        else render();
+        return;
+      }
+      const found = itemsInRect(lvl(store.project), rect);
+      const base = current.add ? pickedItems() : [];
+      const keys = new Set(base.map(itemKey));
+      selectItems([...base, ...found.filter((it) => !keys.has(itemKey(it)))]);
+      if (!found.length) flash("No quedó ninguna pieza completa dentro de la ventana.");
+      return;
+    }
     if (current.kind === "rect") {
       const moved = Math.hypot(evt.clientX - current.sx, evt.clientY - current.sy) > 8;
       if (moved && rectStart && cursor) {
@@ -584,6 +676,11 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     if (drag?.kind === "pan") {
       view.ox = drag.ox + evt.clientX - drag.sx;
       view.oy = drag.oy + evt.clientY - drag.sy;
+      render();
+      return;
+    }
+    if (drag?.kind === "marquee" || drag?.kind === "void") {
+      marquee = { a: marquee.a, b: drag.kind === "void" ? snapPoint(raw).p : raw };
       render();
       return;
     }
@@ -671,10 +768,12 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     const target = evt.target;
     if (target && (target.tagName === "INPUT" || target.tagName === "SELECT" || target.tagName === "TEXTAREA")) return;
     if (evt.key === "Escape") {
-      if (chain || rectStart || typed || stairStart) {
+      if (chain || rectStart || typed || stairStart || marquee) {
         chain = null;
         rectStart = null;
         stairStart = null;
+        marquee = null;
+        drag = null;
         typed = "";
         render();
       } else {
@@ -786,10 +885,13 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
     const wt = Math.max(WALL_THICKNESS * view.scale, 4);
     // muros
+    parts.push('<defs><pattern id="voidHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#fff" fill-opacity="0.7"/><line x1="0" y1="0" x2="0" y2="8" stroke="#000" stroke-width="1" stroke-opacity="0.35"/></pattern></defs>');
     lvl(project).walls.forEach((w) => {
       const a = toScreen(w.a);
       const b = toScreen(w.b);
-      const selected = selection?.wallId === w.id && selection.type === "wall";
+      const selected = (selection?.wallId === w.id && selection.type === "wall") || isPicked("wall", w.id);
+      // la selección se marca con un halo: los muros ya son negros
+      if (selected) parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="wall-pick" stroke-width="${wt + 14}"/>`);
       parts.push(
         `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="wall wall--${w.type}${selected ? " is-selected" : ""}" stroke-width="${w.type === "interior" ? wt * 0.75 : wt}"/>`
       );
@@ -872,7 +974,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       if (!g) return;
       const selected = selection?.type === "balcony" && selection.balconyId === bal.id;
       const pts = g.poly.map(toScreen);
-      parts.push(`<polygon class="balcony${selected ? " is-selected" : ""}" points="${pts.map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
+      parts.push(`<polygon class="balcony${selected ? " is-selected" : ""}${isPicked("balcony", bal.id) ? " is-picked" : ""}" points="${pts.map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
       if (bal.railing !== false) {
         parts.push(`<polyline class="balcony-rail" points="${[pts[1], pts[2], pts[3], pts[0]].map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
       }
@@ -883,8 +985,24 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     });
 
     // huecos de escalera en este nivel (vienen del nivel de abajo)
+    const voids = lvl(project).voids ?? [];
+    const rectOf = (v, cls, label) => {
+      const a = toScreen({ x: v.x0, y: v.y0 });
+      const b = toScreen({ x: v.x1, y: v.y1 });
+      parts.push(`<rect class="${cls}" x="${a.x}" y="${a.y}" width="${b.x - a.x}" height="${b.y - a.y}"/>`);
+      if (label && view.scale > 14) {
+        parts.push(`<line class="void-cross" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/><line class="void-cross" x1="${b.x}" y1="${a.y}" x2="${a.x}" y2="${b.y}"/>`);
+        parts.push(`<text x="${(a.x + b.x) / 2}" y="${(a.y + b.y) / 2}" class="stair-label">${label}</text>`);
+      }
+    };
+    // vacío del nivel de arriba, visto desde abajo como referencia
+    (project.levels[level + 1]?.voids ?? []).forEach((v) => rectOf(v, "exposed exposed--ghost", view.scale > 30 ? "DOBLE ALTURA" : ""));
+    voids.forEach((v) => rectOf(v, `void${selection?.type === "void" && selection.voidId === v.id ? " is-selected" : ""}${isPicked("void", v.id) ? " is-picked" : ""}`, `DOBLE ALTURA · ${fmt(v.x1 - v.x0)} × ${fmt(v.y1 - v.y0)}`));
     (gen?.levels?.[level]?.holes ?? []).forEach((loop) => {
       if (draft) return;
+      const lx = loop.map((p) => p.x), ly = loop.map((p) => p.y);
+      const lc = { x: (Math.min(...lx) + Math.max(...lx)) / 2, y: (Math.min(...ly) + Math.max(...ly)) / 2 };
+      if (voids.some((v) => lc.x >= v.x0 && lc.x <= v.x1 && lc.y >= v.y0 && lc.y <= v.y1)) return; // ya lo muestra el vacío
       const pts = loop.map((p) => toScreen(p));
       parts.push(`<polygon class="stair-hole" points="${pts.map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
       const xs = pts.map((q) => q.x);
@@ -899,7 +1017,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       const lay = layoutFor(st);
       if (!lay || !lay.solution.ok) return;
       const selected = selection?.type === "stair" && selection.stairId === st.id;
-      const cls = `stair${selected ? " is-selected" : ""}${preview ? " stair--preview" : ""}`;
+      const cls = `stair${selected ? " is-selected" : ""}${isPicked("stair", st.id) ? " is-picked" : ""}${preview ? " stair--preview" : ""}`;
       lay.outline.forEach((loop) => {
         parts.push(`<polygon class="${cls}" points="${loop.map((p) => { const q = toScreen(p); return `${q.x},${q.y}`; }).join(" ")}"/>`);
       });
@@ -981,6 +1099,27 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       const s = toScreen(chain.start);
       parts.push(`<circle cx="${s.x}" cy="${s.y}" r="6" class="chain-start"/>`);
     }
+    // copias por confirmar
+    if (preview) {
+      preview.walls.forEach((w) => {
+        const a = toScreen(w.a);
+        const b = toScreen(w.b);
+        parts.push(`<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" class="clone-ghost" stroke-width="${Math.max(wt * 0.6, 2.5)}"/>`);
+        const dir = wallDir(w);
+        w.openings.forEach((o) => {
+          const p1 = toScreen({ x: w.a.x + dir.x * o.offset, y: w.a.y + dir.y * o.offset });
+          const p2 = toScreen({ x: w.a.x + dir.x * (o.offset + o.width), y: w.a.y + dir.y * (o.offset + o.width) });
+          parts.push(`<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" class="clone-ghost clone-ghost--opening" stroke-width="${Math.max(wt * 0.6, 2.5) + 1}"/>`);
+        });
+      });
+      preview.stairs.forEach((st) => drawStair(st, true));
+      preview.voids.forEach((v) => rectOf(v, "exposed exposed--ghost", ""));
+    }
+    if (marquee) {
+      const a = toScreen(marquee.a);
+      const b = toScreen(marquee.b);
+      parts.push(`<rect class="marquee" x="${Math.min(a.x, b.x)}" y="${Math.min(a.y, b.y)}" width="${Math.abs(b.x - a.x)}" height="${Math.abs(b.y - a.y)}"/>`);
+    }
     if (rectStart && cursor) {
       const a = toScreen(rectStart);
       const b = toScreen(cursor.p);
@@ -997,7 +1136,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
 
   function fit() {
     const rect = svg.getBoundingClientRect();
-    const pts = [...lvl(store.project).walls, ...ghostWalls(store.project)].flatMap((w) => [w.a, w.b]);
+    const pts = [...lvl(store.project).walls, ...ghostWalls(store.project), ...(preview?.walls ?? [])].flatMap((w) => [w.a, w.b]);
     if (!pts.length || !rect.width) {
       view.scale = 60;
       view.ox = 60;
@@ -1021,12 +1160,19 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
     setTool,
     setSelection,
     deleteSelection,
+    selectItems,
+    setPreview(next) {
+      preview = next && next.walls.length + next.stairs.length + next.voids.length ? next : null;
+      render();
+    },
     getSelection: () => selection,
     cycleDoor,
     setLevel(index) {
       level = index;
       chain = null;
       rectStart = null;
+      marquee = null;
+      preview = null;
       selection = null;
       onSelectionChange?.(null);
       render();

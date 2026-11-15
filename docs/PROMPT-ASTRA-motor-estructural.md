@@ -345,7 +345,21 @@ El generador ya produce estas piezas (módulos `cad/exposed.js` y `cad/outdoor-b
    - Transmitancia K del volado (piso sobre exterior) y de la terraza (techo transitable).
    - Condensación en el paquete de terraza con membrana: barrera de vapor del lado caliente.
 
-### 6.6 Distribución de columnas (`column-layout.js`)
+### 6.6 Copias, doble altura y cómputo rápido (ya en el generador)
+
+Cambios del modelo que tu motor tiene que conocer. No los vuelvas a generar.
+
+- **Vacíos de doble altura**: `level.voids[] = { id, x0, y0, x1, y1 }` en niveles superiores (un loft es dos niveles con el mismo contorno y un vacío en el entrepiso; lo arma `cad/loft.js`).
+  - El generador los suma a los huecos del entrepiso junto con los de escalera: corta viguetas, pone "Vigas de borde del hueco" y "Brochales del hueco", descuenta piso, aislación y cielorraso, y pone baranda en el borde libre.
+  - Un borde del hueco que coincide con un muro no lleva viga propia: apoya en el bastidor.
+  - `totals.voidArea` informa la superficie sin entrepiso.
+  - Te toca: el brochal o viga de borde del altillo recibe todas las viguetas cortadas y puede salvar el ancho completo del módulo. Hoy `analysis.status` queda en `unsupported` para cualquier proyecto con huecos o escaleras; el loft es el caso que lo vuelve prioritario. En el vacío, los muros de las dos plantas forman un paño de doble altura sin diafragma intermedio: verificá el bastidor intermedio a viento como viga horizontal.
+- **Copias** (`cad/clone.js`): los módulos clonados son muros nuevos del mismo nivel, con ids nuevos. Separados forman varias estructuras por nivel; adosados comparten el muro, que pasa a tabique.
+  - Las piezas numeradas por índice (barandas de hueco, techos de partes descubiertas, terrazas) llevan ahora la estructura en su identidad (`r{n}:`) cuando hay más de una en el nivel. Con una sola estructura las claves no cambian.
+  - La ubicación de montantes junto a aberturas se resuelve con tolerancia, para que dos módulos idénticos en posiciones distintas den exactamente las mismas piezas.
+- **Cómputo rápido** (`cad/quick.js`): ya no tiene fórmulas propias. Arma un proyecto y usa `generate` + `computeBom`. Se eliminaron `calculator.js` y sus sistemas de steel frame y madera por reglas generales; esos sistemas vuelven cuando estén en el generador (fase 11).
+
+### 6.7 Distribución de columnas (`column-layout.js`)
 
 - **Candidatos**: esquinas, encuentros en T, bordes de aberturas (a ± una media sección), esquinas y columnas de niveles superiores, y una grilla modular sobre los muros (paso de 0,60 m).
 - **Objetivo**: minimizar el costo total, que es peso de acero × precio más volumen de hormigón y excavación × precio (usar los precios que cargó el usuario si existen, y si no pesos relativos). Restricciones: todas las verificaciones cumplen, separación ≤ máxima, ninguna columna dentro de un vano, y continuidad vertical preferida (penalizar transferencias).

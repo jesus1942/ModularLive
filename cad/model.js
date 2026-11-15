@@ -48,7 +48,23 @@ export function createRectangle(x0, y0, width, depth) {
 export const levelName = (index) => (index === 0 ? "Planta baja" : `Nivel ${index}`);
 
 export function createLevel(index, walls = [], height = DEFAULT_SETTINGS.wallHeight) {
-  return { id: newId("l"), name: levelName(index), height, walls, stairs: [], exposed: { ...EXPOSED_DEFAULTS }, balconies: [] };
+  return { id: newId("l"), name: levelName(index), height, walls, stairs: [], exposed: { ...EXPOSED_DEFAULTS }, balconies: [], voids: [] };
+}
+
+/**
+ * Vacíos de doble altura: rectángulos del entrepiso de este nivel que no llevan piso
+ * (un loft con altillo es un nivel superior con un vacío sobre el estar).
+ */
+export function normalizeVoids(list) {
+  return (Array.isArray(list) ? list : [])
+    .map((v) => ({ x0: Number(v?.x0), x1: Number(v?.x1), y0: Number(v?.y0), y1: Number(v?.y1), id: v?.id }))
+    .filter((v) => [v.x0, v.x1, v.y0, v.y1].every(Number.isFinite))
+    .map((v) => ({
+      id: v.id ?? newId("v"),
+      x0: Math.round(Math.min(v.x0, v.x1) * 1000) / 1000, x1: Math.round(Math.max(v.x0, v.x1) * 1000) / 1000,
+      y0: Math.round(Math.min(v.y0, v.y1) * 1000) / 1000, y1: Math.round(Math.max(v.y0, v.y1) * 1000) / 1000
+    }))
+    .filter((v) => v.x1 - v.x0 >= 0.3 && v.y1 - v.y0 >= 0.3);
 }
 
 const clamp = (v, lo, hi, fallback) => (Number.isFinite(Number(v)) ? Math.min(Math.max(Number(v), lo), hi) : fallback);
@@ -225,7 +241,8 @@ export function normalizeProject(raw) {
       walls,
       stairs: normalizeStairs(level.stairs),
       exposed: normalizeExposed(level.exposed),
-      balconies: normalizeBalconies(level.balconies, walls)
+      balconies: normalizeBalconies(level.balconies, walls),
+      voids: index > 0 ? normalizeVoids(level.voids) : []
     };
   });
   project.engineering = normalizeEngineering(raw?.engineering, project.levels);
@@ -412,7 +429,7 @@ function resolveContours(walls) {
     const direction = wallDir({ a, b });
     const openings = piece.owners.flatMap(o => (o.wall.openings ?? []).map(op => {
       const origin = pointOnWall(o.wall, op.offset), same = wallDir(o.wall).x * direction.x + wallDir(o.wall).y * direction.y > 0;
-      const offset = (origin.x - a.x) * direction.x + (origin.y - a.y) * direction.y - (same ? 0 : op.width);
+      const offset = Math.round(((origin.x - a.x) * direction.x + (origin.y - a.y) * direction.y - (same ? 0 : op.width)) * 1e6) / 1e6;
       return { ...op, offset, ...(op.kind === "door" && !same ? { hinge: op.hinge === "end" ? "start" : "end", swing: -(op.swing ?? 1) } : {}) };
     })).filter((op, i, list) => op.offset >= -1e-6 && op.offset + op.width <= end - start + 1e-6 && list.findIndex(o => Math.abs(o.offset - op.offset) < 1e-6 && Math.abs(o.width - op.width) < 1e-6) === i);
     effectiveWalls.push({ ...wall, id: whole || start < 1e-6 ? wall.id : `${wall.id}:part:${start.toFixed(3)}`, a, b, openings,

@@ -14,18 +14,20 @@
     <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="cad/cad.css" />
     <link rel="stylesheet" href="footer.css" />
-    <title>ModularLive · Diseñador</title>
+    <title>ActivaModular · Diseñador</title>
   </head>
   <body>
     <nav class="topbar">
-      <div class="topbar__brand">
+      <a class="topbar__brand" href="cad.html">
         <img class="topbar__logo" src="assets/logo-isotipo.png" alt="Logo de Jesús Olguín" width="38" height="24" />
-        <strong>ModularLive</strong>
-        <span class="topbar__badge">Diseñador</span>
+        <strong>ActivaModular</strong>
+      </a>
+      <div class="topbar__nav">
+        <a href="cad.html" aria-current="page">Diseñador</a>
+        <a href="index.html">Cómputo rápido</a>
       </div>
       <input class="topbar__name" id="projectName" aria-label="Nombre del proyecto" />
       <div class="topbar__actions">
-        <a class="btn btn--ghost" href="index.html">Calculadora rápida</a>
         <button class="btn btn--ghost" id="newBtn" type="button">Nuevo</button>
         <label class="btn btn--ghost" for="openFile">Abrir</label>
         <input type="file" id="openFile" accept=".json,application/json" hidden />
@@ -38,6 +40,9 @@
       <div class="toolbar__group" id="toolButtons">
         <button type="button" data-tool="select" title="Seleccionar (V)">
           <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.5L10 19z" /></svg><span>Seleccionar</span>
+        </button>
+        <button type="button" data-tool="multi" title="Elegir varias piezas para copiar (M)">
+          <svg viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="12" height="12" stroke-dasharray="3 2" /><rect x="8.5" y="8.5" width="12" height="12" /></svg><span>Copiar</span>
         </button>
         <button type="button" data-tool="rect" title="Contorno rectangular (R)">
           <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" /></svg><span>Rectángulo</span>
@@ -56,6 +61,9 @@
         </button>
         <button type="button" data-tool="stair" title="Escalera (S)">
           <svg viewBox="0 0 24 24"><path d="M3 20h5v-4h4v-4h4V8h5" /></svg><span>Escalera</span>
+        </button>
+        <button type="button" data-tool="void" title="Doble altura: vacío en el entrepiso (D)">
+          <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" stroke-dasharray="3 2" /><path d="M4 5l16 14M20 5L4 19" /></svg><span>Doble altura</span>
         </button>
         <button type="button" data-tool="floor" title="Editar piso (F)" aria-label="Piso">
           <svg viewBox="0 0 24 24"><path d="M3 14l9-5 9 5-9 5zM3 18l9 5 9-5" /></svg><span>Piso</span>
@@ -85,6 +93,20 @@
 
     <main class="workspace">
       <aside class="sidebar" id="settingsPanel">
+        <details id="loftSettings">
+          <summary>Loft con altillo</summary>
+          <div class="fields" id="loftFields">
+            <p class="loft-sum">Una caja de doble altura con altillo sobre un extremo, vacío sobre el estar, escalera y baranda. Se arma con estas medidas y después se edita como cualquier diseño.</p>
+            <label>Largo exterior (m)<input type="number" step="0.1" min="4" max="18" data-loft="length" value="8.4" /></label>
+            <label>Ancho exterior (m)<input type="number" step="0.1" min="2.4" max="7.2" data-loft="width" value="3.6" /></label>
+            <label>Profundidad del altillo (m)<input type="number" step="0.1" min="1.8" max="12" data-loft="mezzanine" value="3" /></label>
+            <label>Altura de planta baja (m)<input type="number" step="0.05" min="2.3" max="3.2" data-loft="lowerHeight" value="2.6" /></label>
+            <label>Altura del altillo (m)<input type="number" step="0.05" min="2.1" max="3.2" data-loft="upperHeight" value="2.4" /></label>
+            <label class="check"><input type="checkbox" data-loft="stair" checked /> Escalera recta al altillo</label>
+            <p class="loft-sum" id="loftSummary" aria-live="polite"></p>
+            <button type="button" class="btn" id="loftBuild">Armar loft</button>
+          </div>
+        </details>
         <details class="engineering" id="engineeringSettings">
           <summary>Ingeniería · cargas</summary>
           <div class="fields" id="engineeringInputs"></div>
@@ -267,6 +289,19 @@
         <p>Diseño y cómputo modular</p>
       </div>
     </footer>
+
+    <dialog class="sheet" id="newDialog" aria-labelledby="newDialogTitle">
+      <form method="dialog" class="sheet__body">
+        <h2 id="newDialogTitle">Diseño nuevo</h2>
+        <div class="starts">
+          <button type="submit" value="module"><strong>Módulo de 6 × 3 m</strong><span>Una planta con puerta y ventanas, listo para ajustar y clonar.</span></button>
+          <button type="submit" value="loft"><strong>Loft con altillo</strong><span>Doble altura, entrepiso parcial, escalera y baranda.</span></button>
+          <button type="submit" value="blank"><strong>En blanco</strong><span>Empezás dibujando el contorno.</span></button>
+        </div>
+        <p class="loft-sum">El diseño actual se puede recuperar con Deshacer.</p>
+        <div class="row-actions"><button type="submit" value="cancel" class="btn btn--ghost">Cancelar</button></div>
+      </form>
+    </dialog>
 
     <section class="print-only" id="printSheet"></section>
     <div class="toast" id="toast" role="status"></div>

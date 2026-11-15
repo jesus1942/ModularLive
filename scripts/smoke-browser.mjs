@@ -242,6 +242,41 @@ try {
   await page.locator("#engineeringSummary [data-show-engineering]").waitFor();
   assert.match(await page.locator("#engineeringSummary").innerText(), /38,91 kN/);
   checks.push("PWA sin conexión: el cálculo carga con todos sus módulos nuevos en caché.");
+  // El cómputo rápido usa el mismo motor: sin conexión tiene que dar las mismas cifras que el diseñador.
+  await page.goto("http://127.0.0.1:4173/index.html");
+  await page.waitForFunction(() => document.querySelector("#outFigures")?.textContent.includes("18 m²"));
+  assert.match(await page.locator("#outFigures").innerText(), /2\.264 kg/);
+  assert.equal(await page.locator("#materialsPanel tr.cat").count() > 5, true);
+  await context.setOffline(false);
+  await page.locator('[data-q="modules"]').fill("3");
+  await page.locator('[data-q="modules"]').press("Tab");
+  await page.waitForFunction(() => document.querySelector("#outFigures")?.textContent.includes("54 m²"));
+  await page.locator('[data-q="preset"]').selectOption("loft");
+  await page.waitForFunction(() => document.querySelector("#outLead")?.textContent.includes("lofts con altillo"));
+  await page.screenshot({ path: `${output}desktop-computo-rapido.png` });
+  await verifyWidth(page);
+  // Copiar un módulo en espejo y armar un loft desde el diseñador.
+  const cloning = await openPage({ width: 1440, height: 1000 });
+  cloning.page.on("dialog", (dialog) => dialog.accept());
+  await cloning.page.locator("#newBtn").click();
+  await cloning.page.locator('#newDialog button[value="module"]').click();
+  await cloning.page.waitForFunction(() => document.querySelectorAll("#planSvg .footprint").length === 1);
+  await cloning.page.keyboard.press("Control+a");
+  await cloning.page.locator('[data-clone="count"]').fill("2");
+  await cloning.page.locator('[data-clone="count"]').press("Tab");
+  await cloning.page.locator('[data-clone="gap"]').fill("1");
+  await cloning.page.locator('[data-clone="gap"]').press("Tab");
+  await cloning.page.locator('[data-clone="mirror"]').check();
+  assert.equal(await cloning.page.locator("#planSvg .clone-ghost").count() > 0, true);
+  await cloning.page.locator('[data-action="clone"]').click();
+  await cloning.page.waitForFunction(() => document.querySelectorAll("#planSvg .footprint").length === 3);
+  assert.match(await cloning.page.locator("#metrics").innerText(), /54 m²/);
+  await cloning.page.locator("#loftSettings summary").click();
+  await cloning.page.locator("#loftBuild").click();
+  await cloning.page.waitForFunction(() => document.querySelector("#metrics")?.textContent.includes("Doble altura"));
+  assert.equal(await cloning.page.locator("#levelBar [data-level]").count(), 2);
+  await cloning.page.screenshot({ path: `${output}desktop-loft.png` });
+  checks.push("Cómputo rápido con el motor del diseñador (sin conexión, 3 módulos, loft); copia en espejo con vista previa y loft con doble altura.");
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ checks, errors }, null, 2));
 } finally {

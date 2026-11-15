@@ -17,15 +17,15 @@ export const LAYERS = [
 ];
 
 const ROLE_COLORS = {
-  column: 0x214034,
-  ringBeam: 0x2f5d4b,
-  stud: 0x6f9583,
-  track: 0x58806d,
-  openingFrame: 0xd67d44,
-  floorJoist: 0x8a6d4f,
-  rafter: 0x9a4f2a,
-  roofEdge: 0x7d3d1f,
-  ridge: 0x6e2f16,
+  column: 0x262626,
+  ringBeam: 0x383838,
+  stud: 0x8f8f8f,
+  track: 0x787878,
+  openingFrame: 0x5c5c5c,
+  floorJoist: 0x6b6b6b,
+  rafter: 0x4f4f4f,
+  roofEdge: 0x404040,
+  ridge: 0x303030,
   ceilingJoist: 0x555555,
   ceilingTrack: 0x333333,
   stairStringer: 0x2b2b2b,
@@ -38,18 +38,18 @@ const ROLE_COLORS = {
 };
 
 const SURFACE_STYLES = {
-  exterior: { color: 0xc9d3cd, opacity: 0.92 },
-  interior: { color: 0xf2eee5, opacity: 0.95 },
+  exterior: { color: 0xd3d5d4, opacity: 0.92 },
+  interior: { color: 0xf3f3f1, opacity: 0.95 },
   cubierta: { color: 0x8c979c, opacity: 0.9 },
   cielorraso: { color: 0xe8e8e8, opacity: 1 },
   piso: { color: 0xc8a676, opacity: 1 },
-  platea: { color: 0xb9b4a8, opacity: 1 },
-  vidrio: { color: 0x9cc7e0, opacity: 0.45 },
+  platea: { color: 0xb8b8b4, opacity: 1 },
+  vidrio: { color: 0xa9c2cf, opacity: 0.45 },
   puerta: { color: 0x8b5a3c, opacity: 1 },
   escalon: { color: 0x9a9a9a, opacity: 1 },
   terraza: { color: 0xa98b62, opacity: 1 },
   balcon: { color: 0xa98b62, opacity: 1 },
-  volado: { color: 0xc9d3cd, opacity: 0.92 }
+  volado: { color: 0xd3d5d4, opacity: 0.92 }
 };
 
 const toV = ([x, y, z]) => new THREE.Vector3(x, z, y);
@@ -61,7 +61,7 @@ export function createViewer(container) {
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf3f1e8);
+  scene.background = new THREE.Color(0xf4f4f2);
   const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 500);
   camera.position.set(9, 7, 11);
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -69,17 +69,17 @@ export function createViewer(container) {
   controls.dampingFactor = 0.12;
   controls.maxPolarAngle = Math.PI * 0.495;
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xb8b0a0, 1.6));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xb4b4b0, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.8);
   sun.position.set(12, 20, 8);
   scene.add(sun);
 
-  const grid = new THREE.GridHelper(60, 60, 0xb9b3a4, 0xdcd7ca);
+  const grid = new THREE.GridHelper(60, 60, 0xb5b5b2, 0xdcdcd9);
   grid.position.y = 0.001;
   scene.add(grid);
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(60, 60),
-    new THREE.MeshLambertMaterial({ color: 0xe7e2d4, transparent: true, opacity: 0.55, depthWrite: false })
+    new THREE.MeshLambertMaterial({ color: 0xe6e6e3, transparent: true, opacity: 0.55, depthWrite: false })
   );
   ground.rotation.x = -Math.PI / 2;
   scene.add(ground);
@@ -115,7 +115,7 @@ export function createViewer(container) {
     if (!materialCache.has(key)) materialCache.set(key, factory());
     return materialCache.get(key);
   };
-  const highlightMaterial = new THREE.MeshLambertMaterial({ color: 0xd67d44, emissive: 0x5a2a0c });
+  const highlightMaterial = new THREE.MeshLambertMaterial({ color: 0x000000, emissive: 0x000000 });
 
   let memberMeshes = [];
   let firstBuild = true;
@@ -220,7 +220,7 @@ export function createViewer(container) {
   }
 
   function solidMesh(solid) {
-    const material = getMaterial("concrete", () => new THREE.MeshLambertMaterial({ color: 0xb9b4a8 }));
+    const material = getMaterial("concrete", () => new THREE.MeshLambertMaterial({ color: 0xb8b8b4 }));
     if (solid.shape === "beam") {
       const mesh = solid.vertical
         ? orientedBox(solid.a, solid.b, solid.w, solid.h, [1, 0])
