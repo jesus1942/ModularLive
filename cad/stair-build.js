@@ -172,7 +172,8 @@ export function buildStair(lay, ctx) {
       const inset = { x: -outward.x * 0.03, y: -outward.y * 0.03 };
       const r = railAlong(add, {
         a: { x: p.x + inset.x, y: p.y + inset.y }, b: { x: q.x + inset.x, y: q.y + inset.y }, za: land.z, zb: land.z,
-        height: R.railHeight, kind: "baranda", gap: R.balusterGap, identity: `${id}:d${li}:baranda:${i}`, prof, lv
+        // el descanso de llegada de una escalera exterior es un borde en altura: baranda de balcón
+        height: land.arrival ? R.guardHeight : R.railHeight, kind: "baranda", gap: R.balusterGap, identity: `${id}:d${li}:baranda:${i}`, prof, lv
       });
       stats.railing_m += r.handrail_m;
       stats.posts += r.posts;

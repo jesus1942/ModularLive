@@ -359,6 +359,9 @@ Cambios del modelo que tu motor tiene que conocer. No los vuelvas a generar.
   - La ubicación de montantes junto a aberturas se resuelve con tolerancia, para que dos módulos idénticos en posiciones distintas den exactamente las mismas piezas.
 - **Cómputo rápido** (`cad/quick.js`): ya no tiene fórmulas propias. Arma un proyecto y usa `generate` + `computeBom`. Se eliminaron `calculator.js` y sus sistemas de steel frame y madera por reglas generales; esos sistemas vuelven cuando estén en el generador (fase 11).
 
+- **Escaleras exteriores** (`stairEnv` en `cad/stairs.js`): una escalera que arranca fuera de los contornos del nivel es exterior (`lay.exterior`). Sube desde el terreno (z = 0) hasta `floorTop − 0,04` del nivel de arriba, no abre hueco y termina en un descanso de llegada (`landing.arrival`) con columnas `landingPost` al terreno y un dado de 30 × 30 × 50 cm por columna y por zanca (sólidos de `layer: "fundacion"` con `level` del arranque). Te toca: carga de uso de escalera y de baranda sobre ese descanso, su unión al bastidor del nivel superior y el dado real.
+- **Planos** (`cad/sheets.js`): plantas, cortes y vistas se dibujan desde `gen.surfaces`, `gen.members` y `gen.solids`. Cuando tengas secciones dimensionadas, uniones o fundaciones definitivas, mantené esos tres arreglos como fuente única: lo que cambie ahí aparece solo en los planos. Las láminas de estructura y fundaciones (fase 5) pueden reutilizar `fit`, `dimChain`, `titleBlock` y el armado de láminas.
+
 ### 6.7 Distribución de columnas (`column-layout.js`)
 
 - **Candidatos**: esquinas, encuentros en T, bordes de aberturas (a ± una media sección), esquinas y columnas de niveles superiores, y una grilla modular sobre los muros (paso de 0,60 m).

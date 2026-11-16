@@ -112,3 +112,45 @@ test("ancho menor al mínimo accesible queda marcado", () => {
   const lay = generate(p).stairs[0];
   assert.ok(lay.checks.some((c) => !c.ok && c.label.startsWith("Ancho")));
 });
+
+test("escalera exterior: arranca en el terreno, llega a un descanso propio contra el muro y no abre hueco", () => {
+  const up = createRectangle(0, 0, 8, 4);
+  const stair = { kind: "recta", x: 0.6, y: 4.52, dir: 0, width: 0.9 };
+  const base = () => normalizeProject({ levels: [{ walls: createRectangle(0, 0, 8, 4), stairs: [stair] }, { walls: up }] });
+  const without = generate(normalizeProject({ levels: [{ walls: createRectangle(0, 0, 8, 4) }, { walls: createRectangle(0, 0, 8, 4) }] }));
+  let gen = generate(base());
+  const lay = gen.stairs[0];
+  assert.equal(lay.exterior, true);
+  // sube desde el terreno hasta 4 cm bajo el piso de arriba: más alzadas que la interior
+  const top = gen.levels[1].floorTop - 0.04;
+  assert.equal(lay.solution.n, 17);
+  near(lay.solution.a * lay.solution.n, top);
+  near(lay.flights[0].zStart, 0);
+  // el entrepiso queda entero y sin barandas de hueco
+  assert.deepEqual(gen.levels[1].holes, []);
+  near(gen.totals.mezzanineDeckArea, without.totals.mezzanineDeckArea);
+  assert.equal(gen.members.filter((m) => m.level === 1 && m.role === "handrail").length, 0);
+  // descanso de llegada al nivel de arriba, con columnas al terreno y dados
+  const landing = lay.landings.find((l) => l.arrival);
+  near(landing.z, top);
+  near(landing.y0, 4.07);
+  const posts = gen.members.filter((m) => m.group === "Descansos" && m.role === "landingPost");
+  assert.equal(posts.length, 2); // las dos esquinas libres; las otras dos se toman del muro
+  posts.forEach((m) => near(m.a[2], 0));
+  assert.equal(lay.stats.pads, 4); // dos zancas y dos columnas
+  near(gen.totals.concrete - without.totals.concrete, 4 * 0.3 * 0.3 * 0.5);
+  // baranda de 1,00 m en el descanso y a los dos lados del tramo que no va contra el muro
+  const guard = gen.members.filter((m) => m.role === "handrail" && Math.abs(m.a[2] - (top + 1)) < 1e-6 && Math.abs(m.b[2] - (top + 1)) < 1e-6);
+  assert.ok(guard.length >= 2);
+  assert.ok(lay.checks.every((c) => c.ok));
+  assert.ok(gen.warnings.some((w) => w.includes("falta una puerta")));
+  assert.equal(new Set(gen.members.map((m) => m.key)).size, gen.members.length);
+  // con la puerta frente al descanso, sin avisos de escalera
+  const s = lay.arrival;
+  up[2].openings = [{ kind: "door", offset: 8 - (s.x0 + s.x1) / 2 - 0.45, width: 0.9, height: 2.1, sill: 0 }];
+  gen = generate(base());
+  assert.deepEqual(gen.warnings.filter((w) => w.startsWith("Escalera")), []);
+  // lejos del edificio: avisa que no llega a ningún muro
+  stair.y = 6;
+  assert.ok(generate(base()).warnings.some((w) => w.includes("no toca ningún muro")));
+});

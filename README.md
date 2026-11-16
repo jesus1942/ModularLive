@@ -7,7 +7,9 @@ Tiene dos herramientas:
 - **Diseñador en planta y 3D** (`cad.html`): dibujás la planta y la herramienta genera cada pieza de la estructura, la fundación y los cerramientos, con vista 3D, cómputo de materiales y lista de cortes.
 - **Cómputo rápido** (`index.html`): cargás medidas, aberturas y terminaciones y obtenés el cómputo sin dibujar. No tiene fórmulas propias: arma el mismo modelo que el diseñador (`cad/quick.js`) y lo pasa por el mismo generador y el mismo cómputo, así que las cantidades coinciden siempre. Incluye loft con altillo, varios módulos iguales (también en espejo), precios compartidos, mano de obra por m² y **Abrir en el diseñador** para seguir editando.
 
-Las dos pantallas comparten barra, estilos (`cad/cad.css`), tabla de materiales y lista de cortes (`cad/bom-view.js`). Todo en blanco y negro.
+- **Planos** (`planos.html`): láminas de arquitectura a escala del diseño abierto: una planta por nivel (cotas a ejes, aberturas con código, escaleras, vacíos, marcas de corte, norte y escala gráfica), planta de techos con pendientes, cortes A-A y B-B con niveles, cuatro vistas y planillas de aberturas y superficies. Formato A3 apaisado (IRAM 4504) con rótulo editable; se imprime o guarda en PDF a escala y cada lámina se descarga en SVG. Todo sale de las mismas piezas que el 3D (`cad/sheets.js`). Requieren revisión, firma y sello de un profesional matriculado.
+
+Las tres pantallas comparten barra, estilos (`cad/cad.css`), tabla de materiales y lista de cortes (`cad/bom-view.js`). Todo en blanco y negro.
 
 ## Diseñador en planta y 3D
 
@@ -35,6 +37,7 @@ Atajos: `V` seleccionar, `R` rectángulo, `E` muro, `I` tabique, `P` puerta, `N`
 El diseño se guarda como un modelo de obra (muros en planta con sus aberturas, fundación, techo y parámetros). A partir de ese modelo, `cad/generator.js` produce **cada pieza real** con su posición 3D y su largo de corte. El visor 3D y el cómputo usan exactamente esas piezas, así que lo que se ve es lo que se computa.
 
 - **Estructura (tubo estructural)**: columnas en esquinas y cada ≤ 3 m (corridas fuera de las aberturas), bastidor inferior y superior, montantes, jambas, dinteles, antepechos, marcos en perfil C, viguetas de piso, cabios, cumbrera, cenefas y relleno de hastiales.
+- **Escalera exterior**: si la escalera arranca fuera de la planta, sube desde el terreno hasta un descanso propio contra el muro de arriba (4 cm bajo el piso interior), apoyado en columnas con dado, con baranda de 1,00 m. No abre hueco en el entrepiso y avisa si falta la puerta frente al descanso o si no llega a ningún muro.
 - **Doble altura** (`level.voids`): en el vacío no hay viguetas, piso ni cielorraso. El borde libre lleva viga de borde o brochal y baranda de 1,00 m; los bordes contra un muro apoyan en el bastidor; donde llega una escalera la baranda deja el paso.
 - **Fundación**: dados bajo columnas, viga de fundación con pilotines, o platea con viga de borde. Calcula hormigón, excavación, acero por diámetro, malla, film, encofrado y anclajes.
 - **Niveles**: cada nivel es un módulo completo que apoya sobre el bastidor superior del de abajo, con viguetas de entrepiso, placas de unión abulonadas entre niveles y columnas alineadas (si una esquina de arriba cae sobre un muro de abajo, abajo se agrega una columna que baja hasta la fundación). Avisa los voladizos y las columnas sin apoyo directo.

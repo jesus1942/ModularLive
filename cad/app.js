@@ -841,7 +841,8 @@ function renderStairPanel(panel, st, li) {
   const option = (value, label, current) => `<option value="${value}" ${value === current ? "selected" : ""}>${label}</option>`;
   const rules = STAIR_RULES[st.ruleSet] ?? STAIR_RULES.municipal;
   panel.innerHTML = `
-    <h3>Escalera <span class="muted">${STAIR_KINDS[st.kind]}</span></h3>
+    <h3>Escalera${lay?.exterior ? " exterior" : ""} <span class="muted">${STAIR_KINDS[st.kind]}</span></h3>
+    ${lay?.exterior ? '<p class="muted small">Arranca en el terreno y llega a un descanso propio, 4 cm bajo el piso interior, apoyado en columnas con dado. No abre hueco en el entrepiso. Arrimala al muro donde va la puerta de arriba.</p>' : ""}
     ${!lay ? '<p class="warn-inline">No hay nivel encima: agregá un nivel para que la escalera tenga adónde llegar.</p>' : ""}
     ${sol?.ok ? `<p class="stair-sum"><strong>${sol.n} alzadas de ${fmt3(sol.a)} m</strong> · pedada ${fmtNum(sol.p)} m · 2a + p = ${fmt3(sol.blondel)} m<br>${lay.risers.length} tramo${lay.risers.length > 1 ? "s" : ""} (${lay.risers.join(" + ")}) · salva ${fmt3(sol.a * sol.n)} m · largo ${fmtNum(lay.length)} m</p>` : ""}
     <div class="fields fields--2">

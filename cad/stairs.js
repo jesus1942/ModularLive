@@ -54,11 +54,42 @@ export function splitFlights(n, kind, rules) {
  * stair: { kind, x, y, dir, width, turn: "derecha"|"izquierda", ruleSet }
  * levels: { f0 (piso terminado de abajo), H (desnivel), zUnder (cara inferior del entrepiso de arriba) }
  */
-export function layoutStair(stair, { f0, H, zUnder }) {
+/** Hundimiento del descanso exterior de llegada respecto del piso interior, para que no entre agua. */
+export const EXTERIOR_STEP = 0.04;
+
+/** Una escalera es exterior cuando arranca fuera de todos los contornos cerrados de su nivel. */
+export function isExteriorStair(stair, footprints) {
+  const polys = (footprints ?? []).filter(Boolean);
+  if (!polys.length) return false;
+  const inside = (p, poly) => {
+    let hit = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i, i += 1) {
+      const a = poly[i], b = poly[j];
+      if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) hit = !hit;
+    }
+    return hit;
+  };
+  return !polys.some((poly) => inside(stair, poly));
+}
+
+/**
+ * Cotas con las que se resuelve una escalera. La interior va de piso a piso y abre un hueco.
+ * La exterior arranca en el terreno, llega a un descanso propio contra el muro de arriba
+ * (unos centímetros bajo el piso interior) y no abre hueco.
+ */
+export function stairEnv(stair, { lowerFootprints, lo, up, zUnder }) {
+  if (isExteriorStair(stair, lowerFootprints)) {
+    const top = up.floorTop - EXTERIOR_STEP;
+    return { f0: 0, H: top, zUnder: Infinity, exterior: true };
+  }
+  return { f0: lo.floorTop, H: up.floorTop - lo.floorTop, zUnder, exterior: false };
+}
+
+export function layoutStair(stair, { f0, H, zUnder, exterior = false }) {
   const rules = stairRules(stair.ruleSet);
   const sol = solveRisers(H, rules);
   const w = stair.width;
-  const out = { stair, rules, solution: sol, flights: [], landings: [], treads: [], rects: [], hole: [], holeRects: [], arrival: null };
+  const out = { stair, rules, solution: sol, flights: [], landings: [], treads: [], rects: [], hole: [], holeRects: [], arrival: null, exterior };
   if (!sol.ok) return out;
   const { n, a, p } = sol;
   const u = dirVector(stair.dir);
@@ -140,16 +171,18 @@ export function layoutStair(stair, { f0, H, zUnder }) {
     out.arrival.edge = [world(sEnd, tFar - w / 2), world(sEnd, tFar + w / 2)];
   }
 
+  // Afuera, la llegada es un descanso propio a la altura del piso de arriba, apoyado en columnas
+  if (exterior) out.landings.push({ ...out.arrival, z: f0 + H, arrival: true });
   out.treads = out.flights.flatMap((f) => f.treads);
   out.rects = [...out.flights, ...out.landings].map(({ x0, x1, y0, y1 }) => ({ x0, x1, y0, y1 }));
   out.outline = unionOutline(out.rects);
 
   // Hueco en el entrepiso: todo lo que pisa más alto que (cara inferior de arriba − altura de paso)
   const zLimit = zUnder - rules.headroom;
-  const needs = [...out.treads, ...out.landings].filter((e) => e.z > zLimit + 1e-6);
+  const needs = exterior ? [] : [...out.treads, ...out.landings].filter((e) => e.z > zLimit + 1e-6);
   out.holeRects = needs.map(({ x0, x1, y0, y1 }) => ({ x0, x1, y0, y1 }));
   // En U, el ojo entre tramos queda dentro del hueco: una tira de 10 cm de entrepiso no se puede construir
-  if (stair.kind === "U" && out.flights[1]?.treads.some((t) => t.z > zLimit + 1e-6)) {
+  if (!exterior && stair.kind === "U" && out.flights[1]?.treads.some((t) => t.z > zLimit + 1e-6)) {
     const f1run = out.flights[0].run;
     const f2run = out.flights[1].run;
     const gap = rectOf(f1run - f2run, f1run, Math.min(sgn * w / 2, sgn * (w / 2 + U_GAP)), Math.max(sgn * w / 2, sgn * (w / 2 + U_GAP)));
@@ -178,7 +211,9 @@ export function stairChecks(lay) {
   add(`${n} alzadas en ${lay.risers.length} tramo${lay.risers.length > 1 ? "s" : ""} (${lay.risers.join(" + ")})`, lay.risers.every((x) => x <= R.maxRisers), `máximo ${R.maxRisers} por tramo`);
   add(`Ancho libre ${fmt(lay.stair.width, 2)} m`, lay.stair.width >= R.minWidth - 1e-9, `mínimo ${fmt(R.minWidth, 2)} m`);
   add("Escalones iguales", true, "todas las alzadas y pedadas son iguales");
-  add(`Altura de paso ≥ ${fmt(R.headroom, 2)} m`, lay.hole.length > 0, lay.hole.length ? "garantizada por el hueco del entrepiso" : "falta el hueco");
+  if (lay.exterior) add("Altura de paso libre", true, "a cielo abierto");
+  else add(`Altura de paso ≥ ${fmt(R.headroom, 2)} m`, lay.hole.length > 0, lay.hole.length ? "garantizada por el hueco del entrepiso" : "falta el hueco");
+  if (lay.exterior) add("Descanso de llegada", true, `${fmt(Math.max(lay.stair.width, 0.9), 2)} m de fondo, ${fmt(EXTERIOR_STEP * 100, 0)} cm bajo el piso interior`);
   if (R.handrailBothSides) add("Pasamanos a ambos lados a 0,90 m", true, "se generan en los dos lados");
   return checks;
 }

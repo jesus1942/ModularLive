@@ -276,6 +276,18 @@ try {
   await cloning.page.waitForFunction(() => document.querySelector("#metrics")?.textContent.includes("Doble altura"));
   assert.equal(await cloning.page.locator("#levelBar [data-level]").count(), 2);
   await cloning.page.screenshot({ path: `${output}desktop-loft.png` });
+  // Planos: las láminas salen del diseño abierto y se dibujan en A3 a escala.
+  await cloning.page.goto("http://127.0.0.1:4173/planos.html");
+  await cloning.page.waitForFunction(() => document.querySelectorAll("#sheets .sheet").length === 6);
+  assert.match(await cloning.page.locator("#lamina-planta-1").innerText(), /VACÍO · DOBLE ALTURA/);
+  assert.match(await cloning.page.locator("#lamina-cortes").innerText(), /N\.P\.T\. Altillo/);
+  assert.equal(await cloning.page.locator('#sheets svg[viewBox="0 0 420 297"]').count(), 6);
+  await cloning.page.locator('[data-s="comitente"]').fill("Comitente de prueba");
+  await cloning.page.locator('[data-s="comitente"]').press("Tab");
+  await cloning.page.waitForFunction(() => document.querySelector("#lamina-vistas").textContent.includes("Comitente de prueba"));
+  await cloning.page.screenshot({ path: `${output}desktop-planos.png` });
+  await verifyWidth(cloning.page);
+  checks.push("Planos: seis láminas A3 del loft (plantas, techos, cortes, vistas, planillas) con rótulo editable.");
   checks.push("Cómputo rápido con el motor del diseñador (sin conexión, 3 módulos, loft); copia en espejo con vista previa y loft con doble altura.");
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ checks, errors }, null, 2));
