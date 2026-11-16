@@ -27,7 +27,7 @@ import {
 } from "./geometry.js";
 import { PROFILES, SYSTEMS } from "./catalog.js";
 import { doorLeaf, findFootprint, validateOpenings } from "./model.js";
-import { layoutStair, stairChecks } from "./stairs.js";
+import { layoutStair, stairChecks, stairEnv } from "./stairs.js";
 import { alongWall, buildStair, railAlong } from "./stair-build.js";
 import { EXPOSED_DEFAULTS, FLASHING_UPSTAND, exposedParts } from "./exposed.js";
 import {
@@ -221,7 +221,8 @@ export function generate(project) {
       const lo = levelZ[li];
       const up = levelZ[li + 1];
       const zUnder = Math.min(up.elev + ring.h - joist.h, up.elev) - 0.013; // cara inferior de viguetas y cielorraso
-      const lay = layoutStair(st, { f0: lo.floorTop, H: up.floorTop - lo.floorTop, zUnder });
+      const lowerFootprints = contourInfo[li].polygons ?? (contourInfo[li].polygon ? [contourInfo[li].polygon] : []);
+      const lay = layoutStair(st, stairEnv(st, { lowerFootprints, lo, up, zUnder }));
       lay.level = li;
       lay.warnings = [];
       lay.checks = stairChecks(lay);
@@ -230,9 +231,11 @@ export function generate(project) {
         warnings.push(`Escalera de ${level.name}: ${lay.solution.reason}`);
         return;
       }
-      holeRectsByLevel[li + 1].push(...lay.holeRects);
-      arrivalsByLevel[li + 1].push(lay.arrival.edge);
-      guardByLevel[li + 1] = Math.max(guardByLevel[li + 1] ?? 0, lay.rules.guardHeight);
+      if (!lay.exterior) {
+        holeRectsByLevel[li + 1].push(...lay.holeRects);
+        arrivalsByLevel[li + 1].push(lay.arrival.edge);
+        guardByLevel[li + 1] = Math.max(guardByLevel[li + 1] ?? 0, lay.rules.guardHeight);
+      }
       lay.checks.filter((c) => !c.ok).forEach((c) => warnings.push(`Escalera de ${level.name}: no cumple «${c.label}» (${c.detail}).`));
     });
   });
@@ -622,16 +625,49 @@ export function generate(project) {
 
       // ---------- Escaleras que arrancan en este nivel ----------
       stairLayouts
-        .filter((lay) => lay.level === li && lay.solution.ok && (regions.length === 1 || pointInPolygon({ x: lay.stair.x, y: lay.stair.y }, footprint)))
+        .filter((lay) => lay.level === li && lay.solution.ok && (lay.exterior ? ri === 0 : regions.length === 1 || pointInPolygon({ x: lay.stair.x, y: lay.stair.y }, footprint)))
         .forEach((lay) => {
+          const upperWalls = project.levels[li + 1]?.walls ?? [];
+          const firstMember = members.length;
           lay.stats = buildStair(lay, {
             add: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "escaleras", a3, b3, cut, extra),
-            prof, surfaces, walls: level.walls, lv, f0: floorTop
+            // afuera, la escalera corre contra los muros de abajo y llega contra los de arriba
+            prof, surfaces, walls: lay.exterior ? [...sourceLevel.walls, ...upperWalls] : level.walls, lv, f0: lay.exterior ? 0 : floorTop
           });
           const warn = (text) => {
             lay.warnings.push(text);
             warnings.push(`Escalera de ${level.name}: ${text}`);
           };
+          if (lay.exterior) {
+            // Apoyos en el terreno: un dado bajo cada zanca y cada columna del descanso
+            const pad = { size: 0.3, depth: 0.5 };
+            const bases = members.slice(firstMember).filter((m) => m.role === "landingPost" || (m.role === "stairStringer" && Math.abs(m.a[2] - prof("stairStringer").h / 2) < 0.02));
+            bases.forEach((m) => {
+              solids.push({ level: li, layer: "fundacion", shape: "beam", a: [m.a[0], m.a[1], -pad.depth], b: [m.a[0], m.a[1], 0], w: pad.size, h: pad.size, material: "hormigon", vertical: true });
+              totals.concrete += pad.size * pad.size * pad.depth;
+              totals.excavation += pad.size * pad.size * pad.depth;
+            });
+            lay.stats.pads = bases.length;
+            const up = project.levels[li + 1];
+            const arr = lay.arrival;
+            const edges = [[{ x: arr.x0, y: arr.y0 }, { x: arr.x1, y: arr.y0 }], [{ x: arr.x1, y: arr.y0 }, { x: arr.x1, y: arr.y1 }], [{ x: arr.x1, y: arr.y1 }, { x: arr.x0, y: arr.y1 }], [{ x: arr.x0, y: arr.y1 }, { x: arr.x0, y: arr.y0 }]];
+            const touching = upperWalls.filter((wl) => wl.type === "exterior" && edges.some(([a, b]) => alongWall(a, b, [wl], 0.2)));
+            if (!touching.length) warn(`el descanso de llegada no toca ningún muro de ${up.name}: acercala hasta que quede pegada al muro donde va la puerta.`);
+            else {
+              const door = touching.some((wl) => {
+                const d = wallDir(wl);
+                const along = (p) => (p.x - wl.a.x) * d.x + (p.y - wl.a.y) * d.y;
+                const ts = [along({ x: arr.x0, y: arr.y0 }), along({ x: arr.x1, y: arr.y1 })];
+                const lo2 = Math.min(...ts), hi2 = Math.max(...ts);
+                return wl.openings.some((o) => o.kind === "door" && Math.min(o.offset + o.width, hi2) - Math.max(o.offset, lo2) > 0.6);
+              });
+              if (!door) warn(`falta una puerta en ${up.name} frente al descanso de llegada.`);
+            }
+            const lowFoot = contourInfo[li].polygons ?? (contourInfo[li].polygon ? [contourInfo[li].polygon] : []);
+            const c = (r) => ({ x: (r.x0 + r.x1) / 2, y: (r.y0 + r.y1) / 2 });
+            if (lay.rects.some((r) => lowFoot.some((poly) => pointInPolygon(c(r), poly)))) warn("arranca afuera pero se mete en la planta: dejala toda afuera o toda adentro.");
+            return;
+          }
           const shrink = (r, d) => ({ x0: r.x0 + d, x1: r.x1 - d, y0: r.y0 + d, y1: r.y1 - d });
           const cornersOf = (r) => [{ x: r.x0, y: r.y0 }, { x: r.x1, y: r.y0 }, { x: r.x1, y: r.y1 }, { x: r.x0, y: r.y1 }];
           if (footprint && lay.rects.some((r) => cornersOf(shrink(r, 0.03)).some((c) => !pointInPolygon(c, footprint)))) {

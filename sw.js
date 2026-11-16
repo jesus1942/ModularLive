@@ -1,7 +1,11 @@
-const CACHE_NAME = "modular-live-v21";
+const CACHE_NAME = "modular-live-v22";
 const APP_ASSETS = [
   "./",
   "./index.html",
+  "./planos.html",
+  "./cad/planos.css",
+  "./cad/planos-app.js",
+  "./cad/sheets.js",
   "./cad/quick.css",
   "./cad/quick-app.js",
   "./cad/quick.js",

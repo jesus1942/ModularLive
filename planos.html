@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Planos de arquitectura a escala del diseño: plantas, techos, cortes, vistas y planillas." />
+    <meta name="theme-color" content="#000000" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="assets/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="assets/favicon.png" type="image/png" sizes="64x64" />
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="cad/cad.css" />
+    <link rel="stylesheet" href="cad/planos.css" />
+    <link rel="stylesheet" href="footer.css" />
+    <title>ActivaModular · Planos</title>
+  </head>
+  <body>
+    <nav class="topbar">
+      <a class="topbar__brand" href="cad.html">
+        <img class="topbar__logo" src="assets/logo-isotipo.png" alt="Logo de Jesús Olguín" width="38" height="24" />
+        <strong>ActivaModular</strong>
+      </a>
+      <div class="topbar__nav">
+        <a href="cad.html">Diseñador</a>
+        <a href="planos.html" aria-current="page">Planos</a>
+        <a href="index.html">Cómputo rápido</a>
+      </div>
+      <div class="topbar__actions">
+        <button class="btn btn--ghost" id="svgAllBtn" type="button">Descargar SVG</button>
+        <button class="btn" id="printBtn" type="button">Imprimir o guardar PDF</button>
+      </div>
+    </nav>
+
+    <main class="planos">
+      <form class="sidebar planos__form" id="sheetForm" novalidate>
+        <details open>
+          <summary>Rótulo</summary>
+          <div class="fields">
+            <label>Obra<input type="text" data-s="obra" maxlength="90" /></label>
+            <label>Comitente<input type="text" data-s="comitente" maxlength="90" /></label>
+            <label>Ubicación (calle y número)<input type="text" data-s="ubicacion" maxlength="90" /></label>
+            <div class="fields fields--2">
+              <label>Localidad<input type="text" data-s="localidad" maxlength="60" /></label>
+              <label>Provincia<input type="text" data-s="provincia" maxlength="60" /></label>
+            </div>
+            <label>Nomenclatura catastral<input type="text" data-s="catastro" maxlength="90" /></label>
+            <label>Profesional<input type="text" data-s="profesional" maxlength="90" /></label>
+            <div class="fields fields--2">
+              <label>Matrícula<input type="text" data-s="matricula" maxlength="40" /></label>
+              <label>Fecha<input type="text" data-s="fecha" maxlength="20" /></label>
+            </div>
+            <label>Norte (grados desde arriba, horario)<input type="number" data-s="north" min="0" max="359" step="5" /></label>
+          </div>
+        </details>
+        <details open>
+          <summary>Láminas</summary>
+          <div class="fields">
+            <ol class="sheet-list" id="sheetList"></ol>
+            <p class="loft-sum">Formato A3 apaisado (IRAM 4504), cotas a ejes de muro. Para que salga a escala, imprimí en A3, sin márgenes y al 100 %.</p>
+            <p class="loft-sum">Los planos salen del diseño abierto en el diseñador. Cada municipio tiene su carátula y sus exigencias: el rótulo es genérico y el profesional que firma define lo que falte.</p>
+          </div>
+        </details>
+      </form>
+      <section class="planos__out" id="sheets" aria-live="polite"></section>
+    </main>
+
+    <footer class="bf">
+      <div class="bf__dots" aria-hidden="true"></div>
+      <div class="bf__top">
+        <p class="bf__word">Activa<span>Modular</span></p>
+        <div class="bf__figure">
+          <span class="bf__tri" aria-hidden="true"></span>
+          <div class="bf__disc">
+            <img src="assets/logo-completo-oscuro.png" alt="Domotics &amp; IoT Solutions by Jesús Olguín &amp; Cía" width="380" height="298" />
+          </div>
+        </div>
+      </div>
+      <div class="bf__bar">
+        <p>ActivaQR, ActivaControl y ActivaModular son de <strong>jesus.olguin</strong></p>
+        <p>Diseño y cómputo modular</p>
+      </div>
+    </footer>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script type="module" src="cad/planos-app.js"></script>
+  </body>
+</html>

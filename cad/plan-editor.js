@@ -1,7 +1,7 @@
 // Editor de planta 2D sobre SVG. Coordenadas del modelo en metros; Y crece hacia abajo en pantalla.
 import { dist, dot, normalize, pointInPolygon, pointKey, sub, wallDir, wallLength } from "./geometry.js";
 import { STAIR_DEFAULTS, defaultSwing, doorLeaf, levelFootprints, newId, placeBalcony, wallFootprint } from "./model.js";
-import { dirVector, layoutStair } from "./stairs.js";
+import { dirVector, layoutStair, stairEnv as resolveStairEnv } from "./stairs.js";
 import { balconyGeometry } from "./outdoor-build.js";
 import { expandItems, itemKey, itemsInRect, removeItems } from "./clone.js";
 
@@ -131,12 +131,12 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   function stairEnv(li = level) {
     const lo = gen?.levels?.[li];
     const up = gen?.levels?.[li + 1];
-    if (!lo || !up) return null;
-    return { f0: lo.floorTop, H: up.floorTop - lo.floorTop, zUnder: up.elev - 0.013 };
+    return lo && up ? { lo, up } : null;
   }
+  /** Adentro va de piso a piso; afuera arranca en el terreno y llega a su propio descanso. */
   const layoutFor = (stair) => {
     const env = stairEnv();
-    return env ? layoutStair(stair, env) : null;
+    return env ? layoutStair(stair, resolveStairEnv(stair, { lowerFootprints: levelFootprints(env.lo), lo: env.lo, up: env.up, zUnder: env.up.elev - 0.013 })) : null;
   };
   /** Si la escalera queda a menos de 30 cm de un muro paralelo, la pega a su cara. */
   function fitStairToWalls(st, walls) {
@@ -428,7 +428,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       roof: "Tocá dentro de una estructura cerrada para ver y editar su techo.",
       balcony: "Tocá un muro exterior para colocar un balcón y editar sus medidas.",
       stair: stairEnv()
-        ? "Tocá donde arranca la escalera y después hacia dónde sube. Se calcula sola según el reglamento."
+        ? "Tocá donde arranca la escalera y después hacia dónde sube. Afuera de la planta se arma como escalera exterior, con descanso de llegada contra el muro de arriba."
         : "Para poner una escalera hace falta un nivel encima: tocá + en la barra de niveles."
     };
     let text = hints[tool] ?? "";

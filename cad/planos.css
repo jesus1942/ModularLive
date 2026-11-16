@@ -1,0 +1,33 @@
+/* Planos: las láminas se ven en pantalla al ancho disponible y se imprimen en milímetros reales. */
+.planos { display: grid; grid-template-columns: 300px minmax(0, 1fr); align-items: start; min-height: calc(100vh - 54px); }
+.planos__form { position: sticky; top: 54px; max-height: calc(100vh - 54px); border-right: 1px solid var(--line); }
+.planos__out { padding: 24px; background: #e9e9e6; min-width: 0; display: grid; gap: 28px; }
+.sheet { margin: 0; }
+.sheet figcaption { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+.sheet figcaption strong { font-size: 1rem; }
+.sheet figcaption span { color: var(--muted); font-family: var(--mono); font-size: 0.82rem; }
+.sheet figcaption button { border: 0; background: none; padding: 0; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; color: var(--ink); }
+.sheet__paper { background: #fff; border: 1px solid #bdbdb9; box-shadow: 0 1px 0 #bdbdb9; }
+.sheet-svg { display: block; width: 100%; height: auto; }
+.sheet-list { margin: 0; padding-left: 20px; line-height: 1.9; }
+.sheet-list a { color: var(--ink); text-underline-offset: 3px; }
+.planos__empty { background: #fff; border: 1.5px solid var(--ink); padding: 24px; max-width: 60ch; }
+.planos__empty h1 { margin: 0 0 8px; font-family: var(--display); font-weight: 400; font-size: 1.5rem; }
+
+@media (max-width: 980px) {
+  .planos { grid-template-columns: 1fr; }
+  .planos__form { position: static; max-height: none; border-right: 0; border-bottom: 2px solid var(--ink); order: 2; }
+  .planos__out { order: 1; padding: 14px; }
+}
+
+@page { size: A3 landscape; margin: 0; }
+@media print {
+  .topbar, .planos__form, .bf, .toast, .sheet figcaption { display: none !important; }
+  body, .planos__out { background: #fff; }
+  .planos { display: block; }
+  .planos__out { padding: 0; display: block; }
+  .sheet { break-after: page; break-inside: avoid; }
+  .sheet:last-child { break-after: auto; }
+  .sheet__paper { border: 0; box-shadow: none; }
+  .sheet-svg { width: 420mm; height: 297mm; }
+}
