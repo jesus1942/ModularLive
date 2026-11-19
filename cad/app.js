@@ -6,7 +6,8 @@ import { bomToCsv, computeBom, cutListToCsv } from "./bom.js";
 import { copyContour, createDefaultProject, createLevel, defaultSwing, doorLeaf, levelFootprints, levelName, newId, placeBalcony, wallFootprint } from "./model.js";
 import { STAIR_KINDS, STAIR_TREADS } from "./stairs.js";
 import { STAIR_RULES } from "./data/stair-rules.js";
-import { GUARD } from "./exposed.js";
+import { GUARD, PLAN_SIDES } from "./exposed.js";
+import { balconyCornerFills, balconyGeometry, balconyLineJoins, balconyReach } from "./outdoor-build.js";
 import { FOUNDATIONS, ROOF_TYPES } from "./catalog.js";
 import { pointKey, polygonArea, wallDir, wallLength } from "./geometry.js";
 import { createEngineeringClient } from "./engineering/worker-client.js";
@@ -293,6 +294,8 @@ function changeParameter(e) {
     setPath(p, path, value);
     if (path === "foundation.type") p.foundation = { ...FOUNDATIONS[value].defaults, type: value };
     if (path === "roof.type") p.roof.slope = ROOF_TYPES[value].defaultSlope;
+    // el alero general fija todos los lados; después cada lado se ajusta por separado
+    if (path === "roof.overhang") p.roof.overhangs = { arriba: value, abajo: value, izquierda: value, derecha: value };
     if (path.startsWith("engineering.")) {
       const group = path.split(".")[1];
       if (["location", "soil", "steel", "concrete"].includes(group) && !path.endsWith(".confirmed") && !path.endsWith(".certified")) {
@@ -770,7 +773,11 @@ function exposedHtml(li) {
         <label>Se cubre con<select data-ex="kind">${opt("techo", "Techo a un agua", cfg.kind)}${opt("terraza", "Terraza transitable", cfg.kind)}</select></label>
         ${isRoof
           ? `<label>Pendiente (%)<input type="number" min="2" max="60" step="1" data-ex="slope" value="${cfg.slope}" /></label>
-             <label>Alero (m)<input type="number" min="0" max="1.2" step="0.05" data-ex="overhang" value="${cfg.overhang}" /></label>`
+             <label>Alero en todo el borde (m)<input type="number" min="0" max="1.2" step="0.05" data-ex="overhang" value="${cfg.overhang}" /></label>
+             <fieldset class="overhang-sides" style="grid-column: 1 / -1">
+               <legend>Alero por lado <span class="muted">(solo en los bordes libres; 0 = sin alero)</span></legend>
+               ${PLAN_SIDES.map((sd) => `<label class="side side--${sd.key}">${sd.label}<input type="number" min="0" max="1.2" step="0.05" data-ex="overhangs.${sd.key}" value="${cfg.overhangs?.[sd.key] ?? cfg.overhang}" /></label>`).join("")}
+             </fieldset>`
           : `<label class="check"><input type="checkbox" data-ex="railing" ${cfg.railing ? "checked" : ""} /> Baranda de ${GUARD.height.toFixed(2).replace(".", ",")} m en los bordes libres</label>`}
       </div>
       <p class="muted small">${isRoof
@@ -785,11 +792,15 @@ function wireExposed(panel, li) {
       const key = el.dataset.ex;
       if (el.type === "number" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(Number(el.value)))) {
         toast(key === "slope" ? "La pendiente va de 2 a 60 %." : "El alero va de 0 a 1,20 m.");
-        el.value = store.project.levels[li].exposed[key];
+        el.value = getPath(store.project.levels[li].exposed, key);
         return;
       }
+      const value = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
       store.update((p) => {
-        p.levels[li].exposed = { ...p.levels[li].exposed, [key]: el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value };
+        const ex = { ...p.levels[li].exposed, overhangs: { ...(p.levels[li].exposed.overhangs ?? {}) } };
+        setPath(ex, key, value);
+        if (key === "overhang") ex.overhangs = Object.fromEntries(PLAN_SIDES.map((sd) => [sd.key, value]));
+        p.levels[li].exposed = ex;
       });
     })
   );
@@ -801,25 +812,55 @@ function renderBalconyPanel(panel, bal, li) {
   const info = gen?.levels?.[li]?.balconies?.find((b) => b.id === bal.id);
   const wall = level.walls.find((w) => w.id === bal.wallId);
   const index = level.walls.indexOf(wall) + 1;
+  const polys = levelFootprints(gen?.levels?.[li]);
+  const g = wall ? balconyGeometry(bal, wall, wallFootprint(gen?.levels?.[li], wall)) : null;
+  const sideName = g?.sideName ?? { start: "izquierdo", end: "derecho" };
+  const ends = sideName.start === "izquierdo" ? ["start", "end"] : ["end", "start"]; // izquierda primero
+  const extKey = (end) => (end === "start" ? "extStart" : "extEnd");
+  const rails = { start: true, front: true, end: true, ...(bal.rails ?? {}) };
+  const fills = balconyCornerFills(level, polys, bal.id);
+  const reach = balconyReach(level, polys, bal.id);
+  const joins = balconyLineJoins(level, polys, bal.id);
+  const reached = reach && Math.abs(reach.depth - bal.depth) < 1e-3;
+  const length = g ? g.S1 - g.S0 : bal.width;
+  const ext = (bal.extStart ?? 0) + (bal.extEnd ?? 0);
+  const railBox = (key, label) => `<label class="check"><input type="checkbox" data-rail="${key}" ${rails[key] ? "checked" : ""} ${bal.railing ? "" : "disabled"} /> ${label}</label>`;
   panel.innerHTML = `
     <h3>Balcón <span class="muted">en muro ${index}</span></h3>
-    <p class="stair-sum"><strong>${fmtNum(bal.width)} × ${fmtNum(bal.depth)} m</strong> · ${fmtNum(bal.width * bal.depth)} m² · piso 4 cm bajo el interior${info ? `<br>${info.cantilevers} vigas ${bal.support === "voladizo" ? "en voladizo soldadas al bastidor" : `y ${info.posts} columnas con dado`}` : ""}</p>
+    <p class="stair-sum"><strong>${fmtNum(length)} × ${fmtNum(bal.depth)} m</strong> · ${fmtNum(length * bal.depth)} m² · piso 4 cm bajo el interior${ext > 0 ? `<br>sale ${fmtNum(ext)} m más allá del muro` : ""}${info ? `<br>${info.cantilevers} vigas ${bal.support === "voladizo" ? "en voladizo soldadas al bastidor" : `y ${info.posts} columnas con dado`}` : ""}</p>
     <div class="fields fields--2">
-      <label>Ancho (m)<input type="number" min="0.6" max="30" step="0.05" data-bal="width" value="${bal.width}" /></label>
+      <label>Ancho sobre el muro (m)<input type="number" min="0.6" max="30" step="0.05" data-bal="width" value="${bal.width}" /></label>
       <label>Profundidad libre (m)<input type="number" min="0.6" max="3" step="0.05" data-bal="depth" value="${bal.depth}" /></label>
       <label>Desde el inicio del muro (m)<input type="number" min="0" max="100" step="0.05" data-bal="offset" value="${bal.offset.toFixed(2)}" /></label>
       <label>Apoyo<select data-bal="support">${opt("voladizo", "En voladizo", bal.support)}${opt("columnas", "Con columnas al terreno", bal.support)}</select></label>
-      <label class="check"><input type="checkbox" data-bal="railing" ${bal.railing ? "checked" : ""} /> Baranda de ${GUARD.height.toFixed(2).replace(".", ",")} m</label>
+      ${reach ? `<button type="button" class="btn btn--ghost bal-reach" data-reach ${reached ? "disabled" : ""}>${reached ? "Llega al módulo de enfrente: pasillo sin baranda en ese lado" : `Llevar hasta el módulo de enfrente (${fmtNum(reach.depth)} m) y hacerlo pasillo`}</button>` : ""}
+      <fieldset class="bal-rails">
+        <legend>Barandas de ${GUARD.height.toFixed(2).replace(".", ",")} m</legend>
+        <label class="check"><input type="checkbox" data-bal="railing" ${bal.railing ? "checked" : ""} /> Con baranda</label>
+        ${railBox(ends[0], `Lado ${sideName[ends[0]]}`)}
+        ${railBox("front", "Frente")}
+        ${railBox(ends[1], `Lado ${sideName[ends[1]]}`)}
+      </fieldset>
+      <fieldset class="bal-corner">
+        <legend>Prolongar más allá del muro</legend>
+        ${ends.map((end) => `<label>Lado ${sideName[end]} (m)<input type="number" min="0" max="3" step="0.05" data-bal="${extKey(end)}" value="${bal[extKey(end)] ?? 0}" /></label>`).join("")}
+        ${joins.map((j, i) => `<button type="button" class="btn btn--ghost" data-join="${i}">Unir por el lado ${j.side} con el balcón del módulo de al lado (salva ${fmtNum(j.gap * 100, 0)} cm)</button>`).join("")}
+        ${fills.map((f, i) => {
+          const done = Math.abs((bal[extKey(f.end)] ?? 0) - f.ext) < 1e-3;
+          return `<button type="button" class="btn btn--ghost" data-fill="${i}" ${done ? "disabled" : ""}>${done ? `Esquina del lado ${f.side} completa` : `Completar la esquina del lado ${f.side} con el balcón vecino`}</button>`;
+        }).join("")}
+      </fieldset>
     </div>
     <div class="row-actions"><button type="button" class="btn btn--danger" data-action="delete">Eliminar balcón</button></div>
     ${info?.warnings?.length ? `<ul class="warnings">${info.warnings.map((w) => `<li>${escapeHtml(w)}</li>`).join("")}</ul>` : ""}
-    <p class="muted small">Arrastralo para correrlo a lo largo del muro. Voladizo recomendado hasta 1,20 m; más profundo, con columnas. ${escapeHtml(GUARD.source)}</p>`;
+    ${info?.notes?.length ? info.notes.map((t) => `<p class="muted small">${escapeHtml(t)}</p>`).join("") : ""}
+    <p class="muted small">Donde el borde da contra otro balcón, contra otro módulo o contra el último escalón de una escalera exterior, la baranda se abre sola y los pisos quedan unidos. Para llegar con la escalera, poné el último escalón en el borde del balcón. Arrastralo para correrlo a lo largo del muro. Voladizo recomendado hasta 1,20 m; más profundo, con columnas. ${escapeHtml(GUARD.source)}</p>`;
   panel.querySelectorAll("[data-bal]").forEach((el) =>
     el.addEventListener("change", () => {
       const key = el.dataset.bal;
       if (el.type === "number" && (!el.value.trim() || outOfRange(el) || !Number.isFinite(Number(el.value)))) {
         toast("Ingresá una medida válida dentro del rango indicado.");
-        el.value = bal[key];
+        el.value = bal[key] ?? 0;
         return;
       }
       store.update((p) => {
@@ -828,6 +869,47 @@ function renderBalconyPanel(panel, bal, li) {
         target[key] = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value;
         if (key === "depth" && target.depth > 1.2 && target.support === "voladizo") toast("Más de 1,20 m en voladizo: conviene apoyarlo en columnas.");
       });
+    })
+  );
+  panel.querySelectorAll("[data-rail]").forEach((el) =>
+    el.addEventListener("change", () => {
+      store.update((p) => {
+        const target = (levelOf(p).balconies ?? []).find((b) => b.id === bal.id);
+        if (target) target.rails = { start: true, front: true, end: true, ...(target.rails ?? {}), [el.dataset.rail]: el.checked };
+      });
+    })
+  );
+  panel.querySelectorAll("[data-join]").forEach((el) =>
+    el.addEventListener("click", () => {
+      const j = joins[Number(el.dataset.join)];
+      if (!j) return;
+      store.update((p) => {
+        const target = (levelOf(p).balconies ?? []).find((b) => b.id === bal.id);
+        if (target) target[extKey(j.end)] = j.ext;
+      });
+      toast(`Balcones unidos: el piso cubre los ${fmtNum(j.gap * 100, 0)} cm entre módulos y la baranda del medio se abre.`);
+    })
+  );
+  panel.querySelector("[data-reach]")?.addEventListener("click", () => {
+    store.update((p) => {
+      const target = (levelOf(p).balconies ?? []).find((b) => b.id === bal.id);
+      if (target) target.depth = reach.depth;
+    });
+    toast(`Pasillo de ${fmtNum(reach.depth)} m: llega al muro del otro módulo, apoya en los dos y no lleva baranda de ese lado.`);
+  });
+  panel.querySelectorAll("[data-fill]").forEach((el) =>
+    el.addEventListener("click", () => {
+      const f = fills[Number(el.dataset.fill)];
+      if (!f) return;
+      store.update((p) => {
+        const list = levelOf(p).balconies ?? [];
+        const me = list.find((b) => b.id === bal.id);
+        const other = list.find((b) => b.id === f.otherId);
+        if (!me || !other) return;
+        me[extKey(f.end)] = f.ext;
+        other[extKey(f.otherEnd)] = f.otherExt;
+      });
+      toast(`Esquina completada: el balcón sigue ${fmtNum(f.ext)} m hasta el frente del vecino y la baranda entre los dos se abre.`);
     })
   );
   panel.querySelector('[data-action="delete"]').addEventListener("click", () => editor.deleteSelection());

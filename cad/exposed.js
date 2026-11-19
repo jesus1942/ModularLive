@@ -11,6 +11,38 @@ export const EXPOSED_KINDS = {
 export const EXPOSED_DEFAULTS = { kind: "techo", slope: 10, overhang: 0.25, railing: true };
 
 /**
+ * Lados de la planta tal como se ven en el editor (y crece hacia abajo de la pantalla).
+ * El alero se fija por lado: un borde toma el valor del lado hacia el que mira su normal exterior.
+ */
+export const PLAN_SIDES = [
+  { key: "arriba", label: "Arriba", n: { x: 0, y: -1 } },
+  { key: "abajo", label: "Abajo", n: { x: 0, y: 1 } },
+  { key: "izquierda", label: "Izquierda", n: { x: -1, y: 0 } },
+  { key: "derecha", label: "Derecha", n: { x: 1, y: 0 } }
+];
+
+/** Lado de la planta hacia el que mira una normal exterior (el eje dominante decide). */
+export function planSide(n) {
+  if (Math.abs(n.x) >= Math.abs(n.y)) return n.x > 0 ? "derecha" : "izquierda";
+  return n.y > 0 ? "abajo" : "arriba";
+}
+
+/** Aleros por lado a partir de un valor general y, si hay, los valores propios de cada lado. */
+export function normalizeOverhangs(raw, fallback, max = 1.2) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return Object.fromEntries(PLAN_SIDES.map(({ key }) => {
+    const v = Number(src[key]);
+    return [key, Number.isFinite(v) && src[key] !== null && src[key] !== "" ? Math.min(Math.max(v, 0), max) : fallback];
+  }));
+}
+
+/** Función normal → alero de ese lado; acepta un número (mismo alero en todo el contorno). */
+export function overhangFor(overhangs, fallback = 0) {
+  if (typeof overhangs === "number") return () => overhangs;
+  return (n) => overhangs?.[planSide(n)] ?? fallback;
+}
+
+/**
  * Terraza seca sobre estructura liviana: pendiente de la membrana, paquete de terminación
  * (cuñas + fenólico + membrana + deck) y escalón mínimo bajo el piso interior para que no entre agua.
  */
@@ -173,14 +205,16 @@ export const drainT = (part, p) => dotD(p, part.d);
  */
 export function overhangRects(part, overhang, above) {
   const out = part.rects.map((r) => ({ x0: r.x0, x1: r.x1, y0: r.y0, y1: r.y1 }));
-  if (!(overhang > 0)) return out;
-  const ext = part.edges.filter((e) => e.kind === "exterior");
+  const ohOf = typeof overhang === "function" ? overhang : () => overhang;
+  const ext = part.edges.filter((e) => e.kind === "exterior" && ohOf(e.n) > 0);
+  if (!ext.length) return out;
   const rectOf = (pts) => ({
     x0: Math.min(...pts.map((p) => p.x)), x1: Math.max(...pts.map((p) => p.x)),
     y0: Math.min(...pts.map((p) => p.y)), y1: Math.max(...pts.map((p) => p.y))
   });
   ext.forEach((e) => {
-    const strip = rectOf([e.a, e.b, { x: e.a.x + e.n.x * overhang, y: e.a.y + e.n.y * overhang }, { x: e.b.x + e.n.x * overhang, y: e.b.y + e.n.y * overhang }]);
+    const o = ohOf(e.n);
+    const strip = rectOf([e.a, e.b, { x: e.a.x + e.n.x * o, y: e.a.y + e.n.y * o }, { x: e.b.x + e.n.x * o, y: e.b.y + e.n.y * o }]);
     const c = { x: (strip.x0 + strip.x1) / 2, y: (strip.y0 + strip.y1) / 2 };
     if (!pointInPolygon(c, above)) out.push(strip);
   });
@@ -188,7 +222,9 @@ export function overhangRects(part, overhang, above) {
     if (j <= i || Math.abs(e1.n.x * e2.n.x + e1.n.y * e2.n.y) > 1e-6) return;
     const shared = [e1.a, e1.b].find((p) => [e2.a, e2.b].some((q) => Math.hypot(p.x - q.x, p.y - q.y) < 1e-6));
     if (!shared) return;
-    const far = { x: shared.x + (e1.n.x + e2.n.x) * overhang, y: shared.y + (e1.n.y + e2.n.y) * overhang };
+    const o1 = ohOf(e1.n);
+    const o2 = ohOf(e2.n);
+    const far = { x: shared.x + e1.n.x * o1 + e2.n.x * o2, y: shared.y + e1.n.y * o1 + e2.n.y * o2 };
     const sq = rectOf([shared, far]);
     const c = { x: (sq.x0 + sq.x1) / 2, y: (sq.y0 + sq.y1) / 2 };
     if (!pointInPolygon(c, above) && !part.rects.some((r) => inRect(c, r))) out.push(sq);

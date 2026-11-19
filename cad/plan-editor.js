@@ -975,7 +975,15 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
       const selected = selection?.type === "balcony" && selection.balconyId === bal.id;
       const pts = g.poly.map(toScreen);
       parts.push(`<polygon class="balcony${selected ? " is-selected" : ""}${isPicked("balcony", bal.id) ? " is-picked" : ""}" points="${pts.map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
-      if (bal.railing !== false) {
+      // barandas tal como salen del cálculo (se abren contra otro balcón, el edificio o una escalera)
+      const built = gen?.levels?.[level]?.balconies?.find((b) => b.id === bal.id)?.rails;
+      if (built) {
+        built.forEach(([a, b]) => {
+          const A = toScreen(a);
+          const B = toScreen(b);
+          parts.push(`<line class="balcony-rail" x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}"/>`);
+        });
+      } else if (bal.railing !== false) {
         parts.push(`<polyline class="balcony-rail" points="${[pts[1], pts[2], pts[3], pts[0]].map((q) => `${q.x},${q.y}`).join(" ")}"/>`);
       }
       if (view.scale > 18) {
@@ -1137,6 +1145,7 @@ export function createPlanEditor({ svg, store, status, onSelectionChange, onTool
   function fit() {
     const rect = svg.getBoundingClientRect();
     const pts = [...lvl(store.project).walls, ...ghostWalls(store.project), ...(preview?.walls ?? [])].flatMap((w) => [w.a, w.b]);
+    if (pts.length) (lvl(store.project).balconies ?? []).forEach((bal) => pts.push(...(balconyPolyOf(store.project, bal)?.poly ?? []))); // los balcones también entran
     if (!pts.length || !rect.width) {
       view.scale = 60;
       view.ox = 60;

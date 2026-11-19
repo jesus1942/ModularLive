@@ -29,7 +29,7 @@ import { PROFILES, SYSTEMS } from "./catalog.js";
 import { doorLeaf, findFootprint, validateOpenings } from "./model.js";
 import { layoutStair, stairChecks, stairEnv } from "./stairs.js";
 import { alongWall, buildStair, railAlong } from "./stair-build.js";
-import { EXPOSED_DEFAULTS, FLASHING_UPSTAND, exposedParts } from "./exposed.js";
+import { EXPOSED_DEFAULTS, FLASHING_UPSTAND, exposedParts, overhangFor } from "./exposed.js";
 import {
   MIN_ROOF_SLOPE,
   buildBalcony,
@@ -37,6 +37,7 @@ import {
   buildTerrace,
   exposedPlane,
   exposedWallIntervals,
+  levelBalconyPlans,
   openingsOnUpperEdges,
   wallTopProfile
 } from "./outdoor-build.js";
@@ -207,6 +208,11 @@ export function generate(project) {
     });
   }
 
+  // Balcones de cada nivel en planta: se usan para unir barandas entre balcones vecinos y escaleras
+  const levelPolys = (i) => contourInfo[i]?.polygons ?? (contourInfo[i]?.polygon ? [contourInfo[i].polygon] : []);
+  const balconyPlansByLevel = project.levels.map((level, i) => levelBalconyPlans(level, levelPolys(i)));
+  const stairRectsByLevel = project.levels.map(() => []);
+
   // Escaleras: cada una pertenece al nivel de abajo y abre un hueco en el entrepiso de arriba
   const stairLayouts = [];
   const holeRectsByLevel = project.levels.map(() => []);
@@ -230,6 +236,36 @@ export function generate(project) {
       if (!lay.solution.ok) {
         warnings.push(`Escalera de ${level.name}: ${lay.solution.reason}`);
         return;
+      }
+      if (lay.exterior) {
+        // ¿Llega a un balcón? Si el borde del último escalón cae sobre el piso del balcón, el balcón es
+        // el descanso de llegada; si el descanso propio queda pegado al balcón, se unen sin baranda.
+        const plans = balconyPlansByLevel[li + 1] ?? [];
+        const [e1, e2] = lay.arrival.edge;
+        const mid = { x: (e1.x + e2.x) / 2, y: (e1.y + e2.y) / 2 };
+        const ac = { x: (lay.arrival.x0 + lay.arrival.x1) / 2, y: (lay.arrival.y0 + lay.arrival.y1) / 2 };
+        const k = Math.hypot(ac.x - mid.x, ac.y - mid.y) || 1;
+        const probe = { x: mid.x + ((ac.x - mid.x) / k) * 0.1, y: mid.y + ((ac.y - mid.y) / k) * 0.1 };
+        const onto = plans.find((pl) => pointInPolygon(probe, pl.g.poly));
+        const arr = lay.arrival;
+        const ring4 = [[{ x: arr.x0, y: arr.y0 }, { x: arr.x1, y: arr.y0 }, { x: 0, y: -1 }], [{ x: arr.x1, y: arr.y0 }, { x: arr.x1, y: arr.y1 }, { x: 1, y: 0 }],
+          [{ x: arr.x1, y: arr.y1 }, { x: arr.x0, y: arr.y1 }, { x: 0, y: 1 }], [{ x: arr.x0, y: arr.y1 }, { x: arr.x0, y: arr.y0 }, { x: -1, y: 0 }]];
+        const beside = onto ? null : plans.find((pl) => ring4.some(([a, b, nn]) => [0.25, 0.5, 0.75].some((t) => pointInPolygon({ x: a.x + (b.x - a.x) * t + nn.x * 0.06, y: a.y + (b.y - a.y) * t + nn.y * 0.06 }, pl.g.poly))));
+        if (onto) {
+          lay.landings = lay.landings.filter((l) => !l.arrival);
+          lay.rects = [...lay.flights, ...lay.landings].map(({ x0, x1, y0, y1 }) => ({ x0, x1, y0, y1 }));
+          lay.outline = unionOutline(lay.rects);
+          lay.toBalcony = onto.bal.id;
+          const chk = lay.checks.find((c) => c.label === "Descanso de llegada");
+          if (chk) chk.detail = "llega al piso del balcón, a su misma altura";
+          const into = lay.treads.filter((t) => pointInPolygon({ x: (t.x0 + t.x1) / 2, y: (t.y0 + t.y1) / 2 }, onto.g.poly)).length;
+          if (into) lay.warnings.push(`${into === 1 ? "el último escalón se mete" : `${into} escalones se meten`} debajo del balcón: corré la escalera hasta que el último escalón quede en el borde del balcón.`);
+        } else if (beside) {
+          lay.toBalcony = beside.bal.id;
+          lay.joins = [beside.g.poly];
+        }
+        stairRectsByLevel[li + 1].push(...lay.rects);
+        lay.warnings.forEach((t) => warnings.push(`Escalera de ${level.name}: ${t}`));
       }
       if (!lay.exterior) {
         holeRectsByLevel[li + 1].push(...lay.holeRects);
@@ -632,7 +668,8 @@ export function generate(project) {
           lay.stats = buildStair(lay, {
             add: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "escaleras", a3, b3, cut, extra),
             // afuera, la escalera corre contra los muros de abajo y llega contra los de arriba
-            prof, surfaces, walls: lay.exterior ? [...sourceLevel.walls, ...upperWalls] : level.walls, lv, f0: lay.exterior ? 0 : floorTop
+            prof, surfaces, walls: lay.exterior ? [...sourceLevel.walls, ...upperWalls] : level.walls, lv, f0: lay.exterior ? 0 : floorTop,
+            joins: lay.joins ?? []
           });
           const warn = (text) => {
             lay.warnings.push(text);
@@ -652,7 +689,9 @@ export function generate(project) {
             const arr = lay.arrival;
             const edges = [[{ x: arr.x0, y: arr.y0 }, { x: arr.x1, y: arr.y0 }], [{ x: arr.x1, y: arr.y0 }, { x: arr.x1, y: arr.y1 }], [{ x: arr.x1, y: arr.y1 }, { x: arr.x0, y: arr.y1 }], [{ x: arr.x0, y: arr.y1 }, { x: arr.x0, y: arr.y0 }]];
             const touching = upperWalls.filter((wl) => wl.type === "exterior" && edges.some(([a, b]) => alongWall(a, b, [wl], 0.2)));
-            if (!touching.length) warn(`el descanso de llegada no toca ningún muro de ${up.name}: acercala hasta que quede pegada al muro donde va la puerta.`);
+            if (lay.toBalcony) {
+              // llega a un balcón: la puerta la pide el balcón
+            } else if (!touching.length) warn(`el descanso de llegada no toca ningún muro ni balcón de ${up.name}: acercala hasta que quede pegada al muro donde va la puerta o al borde de un balcón.`);
             else {
               const door = touching.some((wl) => {
                 const d = wallDir(wl);
@@ -879,7 +918,7 @@ export function generate(project) {
 
         // ---------- Techo ----------
         if (isTop) {
-          const roofOutline = offsetPolygon(footprint, project.roof.overhang);
+          const roofOutline = offsetPolygon(footprint, overhangFor(project.roof.overhangs, project.roof.overhang));
           const [umin, umax] = uRange;
           const umid = (umin + umax) / 2;
           const bCoordsRoof = [...footprint.map(bOf), ...roofOutline.map(bOf)];
@@ -979,11 +1018,15 @@ export function generate(project) {
 
       // ---------- Balcones colgados de los muros exteriores de este nivel ----------
       const balconyStats = [];
+      const balconyPlaced = new Set(); // parantes compartidos entre balcones que se tocan
       (level.balconies ?? []).forEach((bal, bi) => {
         const st = buildBalcony(bal, bi, {
           add: addMember,
           addRail: (role, grp, a3, b3, cut, extra) => addMember(role, grp, "balcones", a3, b3, cut, extra),
-          prof, lv, surfaces, solids, totals, footprint, floorTop, walls: level.walls, ring, placed: new Set(),
+          prof, lv, surfaces, solids, totals, footprint, floorTop, walls: sourceLevel.walls, ring, placed: balconyPlaced,
+          others: (balconyPlansByLevel[li] ?? []).filter((pl) => pl.bal.id !== bal.id),
+          buildings: levelPolys(li),
+          stairRects: stairRectsByLevel[li] ?? [],
           lowerFootprints: footprints.slice(0, li), lowerName: li > 0 ? project.levels[li - 1].name : "",
           warn: (text) => warnings.push(`Balcón de ${level.name}: ${text}`)
         });

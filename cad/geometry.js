@@ -98,15 +98,18 @@ export function ensureCCW(poly) {
 
 /** Desplaza un polígono antihorario hacia afuera una distancia d. */
 export function offsetPolygon(poly, d) {
-  if (Math.abs(d) < EPS) return poly.map((p) => ({ ...p }));
+  if (typeof d !== "function" && Math.abs(d) < EPS) return poly.map((p) => ({ ...p }));
   const n = poly.length;
+  // d puede ser una función (normal exterior real, índice del lado) → distancia hacia afuera de ese lado
+  const orient = typeof d === "function" && polygonArea(poly) < 0 ? -1 : 1;
   const lines = [];
   for (let i = 0; i < n; i += 1) {
     const p = poly[i];
     const q = poly[(i + 1) % n];
     const dir = normalize(sub(q, p));
     const normal = { x: dir.y, y: -dir.x }; // exterior en polígono antihorario
-    lines.push({ p: add(p, scale(normal, d)), dir });
+    const dist = typeof d === "function" ? orient * d({ x: normal.x * orient, y: normal.y * orient }, i) : d;
+    lines.push({ p: add(p, scale(normal, dist)), dir });
   }
   const out = [];
   for (let i = 0; i < n; i += 1) {

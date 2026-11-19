@@ -137,6 +137,6 @@ test("modelo: valores por defecto y balcones de muros que ya no existen", () => 
   assert.equal(p.levels[0].exposed.kind, "techo");
   assert.equal(p.levels[0].exposed.slope, 10);
   const q = normalizeProject({ levels: [{ walls: createRectangle(0, 0, 6, 3), exposed: { kind: "terraza", slope: 500, overhang: -1 } }] });
-  assert.deepEqual(q.levels[0].exposed, { kind: "terraza", slope: 60, overhang: 0, railing: true });
+  assert.deepEqual(q.levels[0].exposed, { kind: "terraza", slope: 60, overhang: 0, railing: true, overhangs: { arriba: 0, abajo: 0, izquierda: 0, derecha: 0 } });
   assert.ok(Math.abs(polygonArea(R(0, 0, 1, 1))) === 1);
 });
