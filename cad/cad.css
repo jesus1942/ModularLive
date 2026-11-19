@@ -540,3 +540,18 @@ dialog.sheet::backdrop { background: rgba(0, 0, 0, 0.45); }
 .starts button:hover { border-color: var(--ink); }
 .starts strong { font-size: 0.98rem; }
 .starts span { color: var(--muted); font-size: 0.84rem; }
+
+/* Alero por lado: los cuatro campos dispuestos como los lados de la planta */
+.overhang-sides { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px 10px; margin: 0; display: grid; grid-template-columns: 1fr 1fr; grid-template-areas: "arriba arriba" "izquierda derecha" "abajo abajo"; gap: 6px 10px; }
+.overhang-sides legend { font-size: 0.78rem; color: var(--text); padding: 0 4px; }
+.overhang-sides .side--arriba { grid-area: arriba; justify-self: center; width: 50%; }
+.overhang-sides .side--abajo { grid-area: abajo; justify-self: center; width: 50%; }
+.overhang-sides .side--izquierda { grid-area: izquierda; }
+.overhang-sides .side--derecha { grid-area: derecha; }
+.bal-rails { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 1 / -1; }
+.bal-rails legend, .bal-corner legend { font-size: 0.78rem; color: var(--text); padding: 0 4px; }
+.bal-rails, .bal-corner { border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 10px 8px; margin: 0; }
+.bal-corner { display: grid; gap: 8px; grid-column: 1 / -1; grid-template-columns: 1fr 1fr; }
+.bal-corner .btn { grid-column: 1 / -1; }
+.bal-corner .btn { white-space: normal; text-align: left; line-height: 1.3; height: auto; }
+.bal-reach { grid-column: 1 / -1; white-space: normal; text-align: left; line-height: 1.3; height: auto; }

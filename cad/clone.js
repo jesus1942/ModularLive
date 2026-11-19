@@ -175,7 +175,7 @@ function buildCopies(level, items, bounds, opts) {
       out.items.push(item("stair", copy.id));
     });
     (level.balconies ?? []).filter((b) => has("balcony", b.id) && idMap.has(b.wallId)).forEach((b) => {
-      const copy = { ...b, id: newId("b"), wallId: idMap.get(b.wallId) };
+      const copy = { ...b, ...(b.rails ? { rails: { ...b.rails } } : {}), id: newId("b"), wallId: idMap.get(b.wallId) };
       out.balconies.push(copy);
       out.items.push(item("balcony", copy.id));
     });

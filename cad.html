@@ -175,7 +175,14 @@
               </select>
             </label>
             <label>Pendiente (%)<input type="number" step="1" min="0" max="100" data-path="roof.slope" /></label>
-            <label>Alero (m)<input type="number" step="0.05" min="0" max="1.2" data-path="roof.overhang" /></label>
+            <label>Alero en todo el contorno (m)<input type="number" step="0.05" min="0" max="1.2" data-path="roof.overhang" /></label>
+            <fieldset class="overhang-sides">
+              <legend>Alero por lado <span class="muted">(como se ve en la planta; 0 = sin alero)</span></legend>
+              <label class="side side--arriba">Arriba<input type="number" step="0.05" min="0" max="1.2" data-path="roof.overhangs.arriba" /></label>
+              <label class="side side--izquierda">Izquierda<input type="number" step="0.05" min="0" max="1.2" data-path="roof.overhangs.izquierda" /></label>
+              <label class="side side--derecha">Derecha<input type="number" step="0.05" min="0" max="1.2" data-path="roof.overhangs.derecha" /></label>
+              <label class="side side--abajo">Abajo<input type="number" step="0.05" min="0" max="1.2" data-path="roof.overhangs.abajo" /></label>
+            </fieldset>
             <label>Separación de cabios (m)<input type="number" step="0.05" min="0.3" max="1.2" data-path="settings.roofSpacing" /></label>
             <label>Cubierta
               <select data-path="settings.roofCladding">

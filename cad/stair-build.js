@@ -1,6 +1,6 @@
 // Piezas reales de escaleras, barandas y bordes de hueco a partir de layoutStair().
 // Todas las piezas pasan por addMember (3D, cómputo, cortes y peso) o por surfaces.
-import { round } from "./geometry.js";
+import { pointInPolygon, round } from "./geometry.js";
 
 const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
 const len = (v) => Math.hypot(v.x, v.y);
@@ -166,7 +166,8 @@ export function buildStair(lay, ctx) {
       const outward = (m.x - c.x) * n.x + (m.y - c.y) * n.y > 0 ? n : { x: -n.x, y: -n.y };
       const connects = [0.2, 0.5, 0.8].some((t) => {
         const s = { x: p.x + e.x * t + outward.x * 0.05, y: p.y + e.y * t + outward.y * 0.05 };
-        return lay.flights.some((f) => s.x > f.x0 && s.x < f.x1 && s.y > f.y0 && s.y < f.y1);
+        return lay.flights.some((f) => s.x > f.x0 && s.x < f.x1 && s.y > f.y0 && s.y < f.y1)
+          || (ctx.joins ?? []).some((poly) => pointInPolygon(s, poly)); // pegado a un balcón: se pasa de largo
       });
       if (connects || alongWall(p, q, walls)) return;
       const inset = { x: -outward.x * 0.03, y: -outward.y * 0.03 };

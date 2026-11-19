@@ -16,7 +16,7 @@ import {
 } from "./geometry.js";
 import { FOUNDATIONS, ROOF_TYPES, SYSTEMS } from "./catalog.js";
 import { defaultEngineering, normalizeEngineering } from "./engineering/settings.js";
-import { EXPOSED_DEFAULTS } from "./exposed.js";
+import { EXPOSED_DEFAULTS, normalizeOverhangs } from "./exposed.js";
 
 let idCounter = 0;
 export const newId = (prefix) => `${prefix}${Date.now().toString(36)}${(idCounter += 1).toString(36)}`;
@@ -72,15 +72,17 @@ const clamp = (v, lo, hi, fallback) => (Number.isFinite(Number(v)) ? Math.min(Ma
 /** Qué se hace con la parte del nivel que queda sin otro nivel encima. */
 export function normalizeExposed(raw) {
   const e = raw && typeof raw === "object" ? raw : {};
-  return {
+  const out = {
     kind: e.kind === "terraza" ? "terraza" : "techo",
     slope: clamp(e.slope, 2, 60, EXPOSED_DEFAULTS.slope),
     overhang: clamp(e.overhang, 0, 1.2, EXPOSED_DEFAULTS.overhang),
     railing: e.railing !== false
   };
+  out.overhangs = normalizeOverhangs(e.overhangs, out.overhang);
+  return out;
 }
 
-export const BALCONY_DEFAULTS = { width: 2.4, depth: 1.2, support: "voladizo", railing: true };
+export const BALCONY_DEFAULTS = { width: 2.4, depth: 1.2, support: "voladizo", railing: true, rails: { start: true, front: true, end: true }, extStart: 0, extEnd: 0 };
 
 /** Todos los contornos válidos del nivel, compatible con proyectos de un solo módulo. */
 export function levelFootprints(level) {
@@ -109,7 +111,7 @@ export function placeBalcony(level, wallId, center_m = null) {
   }).find(([a, b]) => center >= a - 1e-6 && center <= b + 1e-6);
   if (!outside || outside[1] - outside[0] < 0.8) return null;
   const width = Math.round(Math.min(BALCONY_DEFAULTS.width, Math.max(outside[1] - outside[0] - 0.4, 0.6)) * 100) / 100;
-  const balcony = { id: newId("b"), wallId, ...BALCONY_DEFAULTS, width,
+  const balcony = { id: newId("b"), wallId, ...BALCONY_DEFAULTS, rails: { ...BALCONY_DEFAULTS.rails }, width,
     offset: Math.round(Math.max(outside[0], Math.min(outside[1] - width, center - width / 2)) * 1000) / 1000 };
   level.balconies = [...(level.balconies ?? []), balcony];
   return balcony;
@@ -126,7 +128,11 @@ function normalizeBalconies(list, walls) {
       width: clamp(b.width, 0.6, 30, BALCONY_DEFAULTS.width),
       depth: clamp(b.depth, 0.6, 3, BALCONY_DEFAULTS.depth),
       support: b.support === "columnas" ? "columnas" : "voladizo",
-      railing: b.railing !== false
+      railing: b.railing !== false,
+      // baranda por lado (inicio y fin del muro, frente) y prolongación más allá de los extremos del muro
+      rails: { start: b.rails?.start !== false, front: b.rails?.front !== false, end: b.rails?.end !== false },
+      extStart: clamp(b.extStart, 0, 3, 0),
+      extEnd: clamp(b.extEnd, 0, 3, 0)
     }));
 }
 
@@ -228,6 +234,9 @@ export function normalizeProject(raw) {
   project.foundation = { ...FOUNDATIONS[fType].defaults, ...(raw?.foundation ?? {}), type: fType };
   const rType = ROOF_TYPES[raw?.roof?.type] ? raw.roof.type : "plano";
   project.roof = { slope: ROOF_TYPES[rType].defaultSlope, overhang: 0.25, ...(raw?.roof ?? {}), type: rType };
+  project.roof.overhang = clamp(project.roof.overhang, 0, 1.2, 0.25);
+  // alero por lado de la planta; si no se fijó, todos toman el alero general
+  project.roof.overhangs = normalizeOverhangs(raw?.roof?.overhangs, project.roof.overhang);
   // Diseños guardados antes de los niveles tenían "walls" en la raíz
   const rawLevels = Array.isArray(raw?.levels) && raw.levels.length
     ? raw.levels

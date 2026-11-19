@@ -171,6 +171,15 @@ export function frontSide(project) {
   return sides.map((s) => ({ ...s, score: score(s) })).sort((a, b) => b.score - a.score)[0].n;
 }
 
+/** Alero del techo: un valor si es igual en todo el contorno, si no uno por lado de la planta. */
+function aleroText(roof) {
+  const o = roof.overhangs;
+  if (!o) return `alero ${f2(roof.overhang)} m`;
+  const v = [o.arriba, o.abajo, o.izquierda, o.derecha];
+  if (v.every((x) => Math.abs(x - v[0]) < 1e-6)) return v[0] > 0 ? `alero ${f2(v[0])} m` : "sin alero";
+  return `alero ${[["arriba", o.arriba], ["abajo", o.abajo], ["izq.", o.izquierda], ["der.", o.derecha]].map(([k, x]) => `${k} ${f2(x)}`).join(" · ")} m`;
+}
+
 // ---------- planta ----------
 function planView(project, gen, li, cell, types, planes, { showSections = true } = {}) {
   const level = project.levels[li];
@@ -236,7 +245,8 @@ function planView(project, gen, li, cell, types, planes, { showSections = true }
     if (!b.poly) return;
     const P = b.poly.map(M);
     out.push(poly([P], "balcony"));
-    out.push(`<polyline points="${[P[1], P[2], P[3], P[0]].map((p) => `${mm(p[0])},${mm(p[1])}`).join(" ")}" class="rail"/>`);
+    if (b.rails) b.rails.forEach(([a, c]) => out.push(`<polyline points="${[M(a), M(c)].map((p) => `${mm(p[0])},${mm(p[1])}`).join(" ")}" class="rail"/>`));
+    else out.push(`<polyline points="${[P[1], P[2], P[3], P[0]].map((p) => `${mm(p[0])},${mm(p[1])}`).join(" ")}" class="rail"/>`);
     out.push(text([(P[0][0] + P[2][0]) / 2, (P[0][1] + P[2][1]) / 2], "BALCÓN", "label"));
   });
 
@@ -818,7 +828,7 @@ function schedules(project, gen, types, area) {
     ["Fundación", FOUNDATIONS[project.foundation.type].label],
     ["Muros exteriores", `${SHEETS[system.sheets.wallSheathing].label} + ${SHEETS[s.wallExteriorCladding].label}`],
     ["Revestimiento interior", SHEETS[s.wallInteriorLining].label],
-    ["Cubierta", `${ROOF_TYPES[project.roof.type].label}, ${f2(project.roof.slope).replace(/,00$/, "")} %; ${SHEETS[s.roofCladding].label}; alero ${f2(project.roof.overhang)} m`],
+    ["Cubierta", `${ROOF_TYPES[project.roof.type].label}, ${f2(project.roof.slope).replace(/,00$/, "")} %; ${SHEETS[s.roofCladding].label}; ${aleroText(project.roof)}`],
     ["Montantes / viguetas / cabios", `Cada ${f2(s.wallSpacing)} / ${f2(s.floorSpacing)} / ${f2(s.roofSpacing)} m`]
   ]);
   out.push(data.svg);

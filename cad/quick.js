@@ -147,7 +147,7 @@ export function quickProject(raw = {}) {
     if (loft.error) return { input, error: loft.error };
     project = loft.project;
     project.name = input.name;
-    project.roof = { ...project.roof, type: input.roofType, slope: input.slope, overhang: input.overhang };
+    project.roof = { ...project.roof, type: input.roofType, slope: input.slope, overhang: input.overhang, overhangs: undefined };
     notes.push(...loft.notes);
   } else {
     const walls = createRectangle(0, 0, input.length, input.width);
